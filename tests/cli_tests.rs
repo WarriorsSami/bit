@@ -5,7 +5,7 @@ use fake::Fake;
 use predicates::prelude::predicate;
 use std::process::Command;
 
-const TMPDIR: &str = "playground";
+const TMPDIR: &str = "../playground";
 
 fn redirect_temp_dir() {
     std::env::set_var("TMPDIR", TMPDIR);
@@ -15,7 +15,7 @@ fn redirect_temp_dir() {
 fn new_repository_initiated_with_git_directory() -> Result<(), Box<dyn std::error::Error>> {
     redirect_temp_dir();
     let dir = assert_fs::TempDir::new()?;
-    let dir_absolute_path = dir.path().display().to_string();
+    let dir_absolute_path = dir.path().canonicalize()?.display().to_string();
     let mut sut = Command::cargo_bin("bit")?;
 
     sut.arg("init").arg(dir.path());
