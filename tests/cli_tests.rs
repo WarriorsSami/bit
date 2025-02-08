@@ -22,7 +22,9 @@ fn new_repository_initiated_with_git_directory() -> Result<(), Box<dyn std::erro
 
     sut.assert()
         .success()
-        .stdout(predicate::str::is_match(r"^Initialized git directory at .+$")?)
+        .stdout(predicate::str::is_match(
+            r"^Initialized git directory at .+$",
+        )?)
         .stdout(predicate::str::contains(dir_absolute_path));
 
     Ok(())

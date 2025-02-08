@@ -1,6 +1,6 @@
 use anyhow::Result;
+use bit::domain::areas::repository::Repository;
 use clap::{Parser, Subcommand};
-use bit::domain::git_repository::Repository;
 
 #[derive(Parser)]
 #[command(
@@ -34,7 +34,7 @@ enum Commands {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    
+
     match &cli.command {
         Commands::Init { path } => {
             let mut repository = match path {
@@ -44,21 +44,23 @@ fn main() -> Result<()> {
                     Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?
                 }
             };
-            
+
             repository.init()?
-        },
+        }
         Commands::CatFile { sha } => {
             let pwd = std::env::current_dir()?;
-            let mut repository = Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.cat_file(sha)?
         }
         Commands::HashObject { write, file } => {
             let pwd = std::env::current_dir()?;
-            let mut repository = Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.hash_object(file, *write)?
-        },
+        }
     }
 
     Ok(())
