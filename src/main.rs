@@ -30,6 +30,10 @@ enum Commands {
         #[arg(index = 1)]
         file: String,
     },
+    Commit {
+        #[arg(short, long)]
+        message: String,
+    },
 }
 
 fn main() -> Result<()> {
@@ -60,6 +64,13 @@ fn main() -> Result<()> {
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.hash_object(file, *write)?
+        }
+        Commands::Commit { message } => {
+            let pwd = std::env::current_dir()?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.commit(message.into())?
         }
     }
 

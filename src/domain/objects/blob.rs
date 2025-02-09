@@ -1,32 +1,27 @@
+use bytes::Bytes;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
-use crate::domain::ByteArray;
 
+#[derive(Debug, Clone)]
 pub struct Blob {
-    content: ByteArray,
+    content: String,
 }
 
 impl Blob {
-    pub fn new(content: ByteArray) -> Self {
+    pub fn new(content: String) -> Self {
         Blob { content }
     }
 
-    pub fn pretty_print(&self) -> String {
-        String::from_utf8_lossy(&self.content).to_string()
+    pub fn display(&self) -> String {
+        self.content.clone()
     }
 }
 
 impl Object for Blob {
-    fn serialize(&self) -> anyhow::Result<ByteArray> {
-        let object_content = format!(
-            "{} {}\0{}",
-            ObjectType::Blob.as_str(),
-            self.content.len(),
-            String::from_utf8_lossy(&self.content)
-        );
-        let object_raw_content = object_content.as_bytes();
-
-        Ok(object_raw_content.into())
+    fn serialize(&self) -> anyhow::Result<Bytes> {
+        let object_content = format!("{} {}\0{}", self.object_type().as_str(), self.content.len(), self.content);
+        
+        Ok(Bytes::from(object_content))
     }
 
     fn object_type(&self) -> ObjectType {

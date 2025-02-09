@@ -4,6 +4,7 @@ use anyhow::Context;
 use fake::rand;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use bytes::Bytes;
 
 pub struct Database {
     path: Box<Path>,
@@ -33,7 +34,10 @@ impl Database {
 
     fn read_object(&self, object_path: PathBuf) -> anyhow::Result<ByteArray> {
         // read the object file
-        let object_content = std::fs::read(&object_path).context("Unable to read object file")?;
+        let object_content = std::fs::read(&object_path).context(format!(
+            "Unable to read object file {}",
+            object_path.display()
+        ))?;
 
         // decompress the object content
         let object_content = Self::decompress(object_content.into())?;
@@ -50,9 +54,17 @@ impl Database {
         Ok(parts[1].into())
     }
 
-    fn write_object(&self, object_path: PathBuf, object_content: ByteArray) -> anyhow::Result<()> {
-        let object_dir = object_path.parent().context("Invalid object path")?;
+    fn write_object(&self, object_path: PathBuf, object_content: Bytes) -> anyhow::Result<()> {
+        let object_dir = object_path.parent().context(format!("Invalid object path {}", object_path.display()))?;
         let temp_object_path = object_dir.join(Self::generate_temp_name());
+
+        // create the object directory if it doesn't exist
+        if !object_dir.exists() {
+            std::fs::create_dir_all(object_dir).context(format!(
+                "Unable to create object directory {}",
+                object_dir.display()
+            ))?;
+        }
 
         // compress the object content
         let object_content = Self::compress(object_content)?;
@@ -65,18 +77,22 @@ impl Database {
             .create(true)
             .truncate(true)
             .open(&temp_object_path)
-            .context("Unable to open object file")?;
+            .context(format!(
+                "Unable to open object file {}",
+                temp_object_path.display()
+            ))?;
 
         file.write_all(&object_content)
-            .context("Unable to write object file")?;
+            .context(format!("Unable to write object file {}", temp_object_path.display()))?;
 
         // rename the temp file to the object file to make it atomic
-        std::fs::rename(&temp_object_path, &object_path).context("Unable to rename object file")?;
+        std::fs::rename(&temp_object_path, &object_path)
+            .context(format!("Unable to rename object file to {}", object_path.display()))?;
 
         Ok(())
     }
 
-    fn compress(data: ByteArray) -> anyhow::Result<ByteArray> {
+    fn compress(data: Bytes) -> anyhow::Result<Bytes> {
         let mut encoder =
             flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
         encoder
@@ -89,7 +105,7 @@ impl Database {
             .context("Unable to finish compressing object content")
     }
 
-    fn decompress(data: ByteArray) -> anyhow::Result<ByteArray> {
+    fn decompress(data: Bytes) -> anyhow::Result<Bytes> {
         let mut decoder = flate2::read::ZlibDecoder::new(&*data);
         let mut decompressed_content = Vec::new();
         decoder

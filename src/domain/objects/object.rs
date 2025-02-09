@@ -1,10 +1,10 @@
 use crate::domain::objects::object_type::ObjectType;
-use crate::domain::ByteArray;
 use anyhow::Result;
+use bytes::Bytes;
 use sha1::{Digest, Sha1};
 
 pub trait Object {
-    fn serialize(&self) -> Result<ByteArray>;
+    fn serialize(&self) -> Result<Bytes>;
 
     fn object_type(&self) -> ObjectType;
 
@@ -19,10 +19,6 @@ pub trait Object {
     fn object_path(&self) -> Result<String> {
         let object_id = self.object_id()?;
 
-        Ok(format!(
-            "{}/{}",
-            &object_id[..2],
-            &object_id[2..]
-        ))
+        Ok(format!("{}/{}", &object_id[..2], &object_id[2..]))
     }
 }
