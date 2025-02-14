@@ -49,7 +49,7 @@ fn read_blob_object_successfully() -> Result<(), Box<dyn std::error::Error>> {
     file_path.write_str(&file_content.clone())?;
 
     let mut git_cmd = Command::new("git");
-    let blob_sha_raw = git_cmd
+    let blob_oid_raw = git_cmd
         .current_dir(dir.path())
         .arg("hash-object")
         .arg("-w")
@@ -58,14 +58,14 @@ fn read_blob_object_successfully() -> Result<(), Box<dyn std::error::Error>> {
         .stdout
         .trim_ascii()
         .to_vec();
-    let blob_sha = String::from_utf8(blob_sha_raw)?;
+    let blob_oid = String::from_utf8(blob_oid_raw)?;
 
     let mut git_cmd = Command::new("git");
     let file_content_raw = git_cmd
         .current_dir(dir.path())
         .arg("cat-file")
         .arg("-p")
-        .arg(&blob_sha)
+        .arg(&blob_oid)
         .output()?
         .stdout
         .trim_ascii()
@@ -76,7 +76,7 @@ fn read_blob_object_successfully() -> Result<(), Box<dyn std::error::Error>> {
     sut.current_dir(dir.path())
         .arg("cat-file")
         .arg("-p")
-        .arg(&blob_sha);
+        .arg(&blob_oid);
 
     sut.assert().success().stdout(predicate::eq(file_content));
 
@@ -150,7 +150,22 @@ fn write_commit_object_successfully() -> Result<(), Box<dyn std::error::Error>> 
     // assert that the commit was successful
     sut.assert()
         .success()
-        .stdout(predicate::str::is_match(r"^root-commit: [0-9a-f]{40}\n.+$")?);
+        .stdout(predicate::str::is_match(r"^\[\(root-commit\) [0-9a-f]{40}\] .+$")?);
+    
+    let commit_excerpt_raw = sut
+        .output()?
+        .stdout
+        .trim_ascii()
+        .to_vec();
+    let commit_excerpt = String::from_utf8(commit_excerpt_raw)?;
+    
+    // read the HEAD file to get the commit OID
+    let head_file_path = dir.child(".git/HEAD").to_path_buf();
+    let head_file_content = std::fs::read_to_string(head_file_path)?;
+    
+    assert_eq!(head_file_content.len(), 40);
+    assert!(head_file_content.chars().all(|c| c.is_ascii_hexdigit()));
+    assert!(commit_excerpt.contains(&head_file_content));
 
     Ok(())
 }

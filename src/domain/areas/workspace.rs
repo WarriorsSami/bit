@@ -7,8 +7,8 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(path: Box<Path>) -> anyhow::Result<Self> {
-        Ok(Workspace { path })
+    pub fn new(path: Box<Path>) -> Self { 
+        Workspace { path }
     }
 
     pub fn list_files(&self) -> anyhow::Result<Vec<String>> {

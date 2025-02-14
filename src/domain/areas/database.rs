@@ -1,21 +1,24 @@
 use crate::domain::objects::object::Object;
-use crate::domain::ByteArray;
 use anyhow::Context;
+use bytes::Bytes;
 use fake::rand;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use bytes::Bytes;
 
 pub struct Database {
     path: Box<Path>,
 }
 
 impl Database {
-    pub fn new(path: Box<Path>) -> anyhow::Result<Self> {
-        Ok(Database { path })
+    pub fn new(path: Box<Path>) -> Self {
+        Database { path }
+    }
+    
+    pub fn objects_path(&self) -> &Path {
+        &self.path
     }
 
-    pub fn load(&self, object_id: &str) -> anyhow::Result<ByteArray> {
+    pub fn load(&self, object_id: &str) -> anyhow::Result<Bytes> {
         let object_path = self
             .path
             .join(Path::new(&object_id[..2]).join(Path::new(&object_id[2..])));
@@ -32,7 +35,7 @@ impl Database {
         Ok(())
     }
 
-    fn read_object(&self, object_path: PathBuf) -> anyhow::Result<ByteArray> {
+    fn read_object(&self, object_path: PathBuf) -> anyhow::Result<Bytes> {
         // read the object file
         let object_content = std::fs::read(&object_path).context(format!(
             "Unable to read object file {}",
@@ -45,13 +48,14 @@ impl Database {
         // extract the object content by removing the header
         let parts = object_content
             .splitn(2, |&byte| byte == 0)
+            .map(|part| part.to_vec())
             .collect::<Vec<_>>();
 
         if parts.len() != 2 {
             return Err(anyhow::anyhow!("Invalid object file"));
         }
 
-        Ok(parts[1].into())
+        Ok(Bytes::from(parts[1].clone()))
     }
 
     fn write_object(&self, object_path: PathBuf, object_content: Bytes) -> anyhow::Result<()> {

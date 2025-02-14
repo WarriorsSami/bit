@@ -26,22 +26,21 @@ impl Repository {
         let tree_id = tree.object_id()?;
         self.database().store(tree)?;
 
+        let parent = self.refs().read_head();
+        let is_root = match parent {
+            Some(_) => "",
+            None => "(root-commit) ",
+        };
+        
         let author = Author::load_from_env()?;
         let message = message.trim().to_string();
         
-        let commit = Commit::new(tree_id, author, message);
+        let commit = Commit::new(parent, tree_id, author, message);
         let commit_id = commit.object_id()?;
         self.database().store(commit.clone())?;
+        self.refs().update_head(commit_id.clone())?;
         
-        // open HEAD file as WRONLY and CREAT to write commit_id to it
-        let mut head_file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(self.git_head_path())?;
-        head_file.write_all(commit_id.as_bytes())?;
-        
-        write!(self.writer(), "root-commit: {}\n{}", commit_id, commit.short_message())?;
+        write!(self.writer(), "[{}{}] {}", is_root, commit_id, commit.short_message())?;
         
         Ok(())
     }
