@@ -13,7 +13,7 @@ impl Database {
     pub fn new(path: Box<Path>) -> Self {
         Database { path }
     }
-    
+
     pub fn objects_path(&self) -> &Path {
         &self.path
     }
@@ -30,7 +30,21 @@ impl Database {
         let object_path = self.path.join(object.object_path()?);
         let object_content = object.serialize()?;
 
-        self.write_object(object_path, object_content)?;
+        // write the object to disk unless it already exists
+        // otherwise, create the object directory
+        if !object_path.exists() {
+            std::fs::create_dir_all(
+                object_path
+                    .parent()
+                    .context(format!("Invalid object path {}", object_path.display()))?,
+            )
+            .context(format!(
+                "Unable to create object directory {}",
+                object_path.display()
+            ))?;
+
+            self.write_object(object_path, object_content)?;
+        }
 
         Ok(())
     }
@@ -59,16 +73,10 @@ impl Database {
     }
 
     fn write_object(&self, object_path: PathBuf, object_content: Bytes) -> anyhow::Result<()> {
-        let object_dir = object_path.parent().context(format!("Invalid object path {}", object_path.display()))?;
+        let object_dir = object_path
+            .parent()
+            .context(format!("Invalid object path {}", object_path.display()))?;
         let temp_object_path = object_dir.join(Self::generate_temp_name());
-
-        // create the object directory if it doesn't exist
-        if !object_dir.exists() {
-            std::fs::create_dir_all(object_dir).context(format!(
-                "Unable to create object directory {}",
-                object_dir.display()
-            ))?;
-        }
 
         // compress the object content
         let object_content = Self::compress(object_content)?;
@@ -86,12 +94,16 @@ impl Database {
                 temp_object_path.display()
             ))?;
 
-        file.write_all(&object_content)
-            .context(format!("Unable to write object file {}", temp_object_path.display()))?;
+        file.write_all(&object_content).context(format!(
+            "Unable to write object file {}",
+            temp_object_path.display()
+        ))?;
 
         // rename the temp file to the object file to make it atomic
-        std::fs::rename(&temp_object_path, &object_path)
-            .context(format!("Unable to rename object file to {}", object_path.display()))?;
+        std::fs::rename(&temp_object_path, &object_path).context(format!(
+            "Unable to rename object file to {}",
+            object_path.display()
+        ))?;
 
         Ok(())
     }

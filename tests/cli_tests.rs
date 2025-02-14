@@ -133,36 +133,35 @@ fn write_commit_object_successfully() -> Result<(), Box<dyn std::error::Error>> 
         file_path.write_str(&file_content.clone())?;
         file_names.push(file_name);
     }
-    
+
     // create fake author config and message
     let author_name = Name().fake::<String>();
     let author_email = FreeEmail().fake::<String>();
-    let message = Words(5..10).fake::<Vec<String>>().join("\n"); 
+    let message = Words(5..10).fake::<Vec<String>>().join("\n");
 
     // commit the files using bit
     let mut sut = Command::cargo_bin("bit")?;
     sut.current_dir(dir.path())
-        .envs(vec![("GIT_AUTHOR_NAME", author_name), ("GIT_AUTHOR_EMAIL", author_email)])
+        .envs(vec![
+            ("GIT_AUTHOR_NAME", author_name),
+            ("GIT_AUTHOR_EMAIL", author_email),
+        ])
         .arg("commit")
         .arg("-m")
         .arg(message);
 
     // assert that the commit was successful
-    sut.assert()
-        .success()
-        .stdout(predicate::str::is_match(r"^\[\(root-commit\) [0-9a-f]{40}\] .+$")?);
-    
-    let commit_excerpt_raw = sut
-        .output()?
-        .stdout
-        .trim_ascii()
-        .to_vec();
+    sut.assert().success().stdout(predicate::str::is_match(
+        r"^\[\(root-commit\) [0-9a-f]{40}\] .+$",
+    )?);
+
+    let commit_excerpt_raw = sut.output()?.stdout.trim_ascii().to_vec();
     let commit_excerpt = String::from_utf8(commit_excerpt_raw)?;
-    
+
     // read the HEAD file to get the commit OID
     let head_file_path = dir.child(".git/HEAD").to_path_buf();
     let head_file_content = std::fs::read_to_string(head_file_path)?;
-    
+
     assert_eq!(head_file_content.len(), 40);
     assert!(head_file_content.chars().all(|c| c.is_ascii_hexdigit()));
     assert!(commit_excerpt.contains(&head_file_content));

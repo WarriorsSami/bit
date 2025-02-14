@@ -1,6 +1,6 @@
-use bytes::Bytes;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
+use bytes::Bytes;
 
 #[derive(Debug, Clone)]
 pub struct Blob {
@@ -19,8 +19,13 @@ impl Blob {
 
 impl Object for Blob {
     fn serialize(&self) -> anyhow::Result<Bytes> {
-        let object_content = format!("{} {}\0{}", self.object_type().as_str(), self.content.len(), self.content);
-        
+        let object_content = format!(
+            "{} {}\0{}",
+            self.object_type().as_str(),
+            self.content.len(),
+            self.content
+        );
+
         Ok(Bytes::from(object_content))
     }
 

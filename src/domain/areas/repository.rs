@@ -1,8 +1,8 @@
 use crate::domain::areas::database::Database;
+use crate::domain::areas::refs::Refs;
 use crate::domain::areas::workspace::Workspace;
 use std::cell::{RefCell, RefMut};
 use std::path::Path;
-use crate::domain::areas::refs::Refs;
 
 pub struct Repository {
     path: Box<Path>,
@@ -48,7 +48,7 @@ impl Repository {
     pub fn workspace(&self) -> &Workspace {
         &self.workspace
     }
-    
+
     pub fn refs(&self) -> &Refs {
         &self.refs
     }

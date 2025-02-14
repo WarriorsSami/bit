@@ -62,7 +62,7 @@ impl Commit {
         lines.push(format!("committer {}", self.committer.display()));
         lines.push(String::new());
         lines.push(self.message.clone());
-        
+
         lines.join("\n")
     }
 
@@ -75,7 +75,11 @@ impl Object for Commit {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let mut object_content = vec![];
 
-        object_content.push(format!("{} {}\0", self.object_type().as_str(), self.display().len()));
+        object_content.push(format!(
+            "{} {}\0",
+            self.object_type().as_str(),
+            self.display().len()
+        ));
         object_content.push(format!("tree {}", self.tree_oid));
         if let Some(parent) = &self.parent {
             object_content.push(format!("parent {}", parent));
@@ -84,7 +88,7 @@ impl Object for Commit {
         object_content.push(format!("committer {}", self.committer.display()));
         object_content.push(String::new());
         object_content.push(self.message.clone());
-        
+
         let object_content = object_content.join("\n");
 
         Ok(Bytes::from(object_content))

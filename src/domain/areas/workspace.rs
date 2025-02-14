@@ -7,7 +7,7 @@ pub struct Workspace {
 }
 
 impl Workspace {
-    pub fn new(path: Box<Path>) -> Self { 
+    pub fn new(path: Box<Path>) -> Self {
         Workspace { path }
     }
 

@@ -39,7 +39,7 @@ impl Object for Tree {
             entries.len(),
             entries
         );
-        
+
         Ok(Bytes::from(object_content))
     }
 
