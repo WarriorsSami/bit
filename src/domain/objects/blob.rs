@@ -12,8 +12,24 @@ impl Blob {
         Blob { content }
     }
 
-    pub fn display(&self) -> String {
-        self.content.clone()
+    fn from(data: String) -> anyhow::Result<Self> {
+        let parts = data
+            .splitn(2, '\0')
+            .collect::<Vec<&str>>();
+
+        if parts.len() != 2 {
+            return Err(anyhow::anyhow!("Invalid blob file"));
+        }
+
+        Ok(Self::new(parts[1].to_string()))
+    }
+}
+
+impl TryFrom<String> for Blob {
+    type Error = anyhow::Error;
+
+    fn try_from(data: String) -> anyhow::Result<Self> {
+        Blob::from(data)
     }
 }
 
@@ -31,5 +47,9 @@ impl Object for Blob {
 
     fn object_type(&self) -> ObjectType {
         ObjectType::Blob
+    }
+
+    fn display(&self) -> String {
+        self.content.clone()
     }
 }

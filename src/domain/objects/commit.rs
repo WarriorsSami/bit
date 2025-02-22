@@ -51,23 +51,63 @@ impl Commit {
         }
     }
 
-    pub fn display(&self) -> String {
-        let mut lines = vec![];
+    fn from(data: String) -> anyhow::Result<Self> {
+        let mut lines = data.lines();
+        lines.next().context("Invalid commit object: missing header")?;
+        
+        let tree_oid = lines
+            .next()
+            .context("Invalid commit object: missing tree")?
+            .split_whitespace()
+            .nth(1)
+            .context("Invalid commit object: missing tree")?
+            .to_string();
+        
+        let parent = lines
+            .next()
+            .filter(|line| line.starts_with("parent"))
+            .map(|line| {
+                line.split_whitespace()
+                    .nth(1)
+                    .context("Invalid commit object: missing parent")
+                    .map(|s| s.to_string())
+            })
+            .transpose()?;
+        
+        let author_line = lines
+            .next()
+            .context("Invalid commit object: missing author")?;
+        let author_name = author_line
+            .split_whitespace()
+            .skip(1)
+            .take(1)
+            .collect::<Vec<&str>>()
+            .join(" ");
+        let author_email = author_line
+            .split_whitespace()
+            .skip(2)
+            .take(1)
+            .collect::<Vec<&str>>()
+            .join(" ")
+            .trim_matches(|c| c == '<' || c == '>')
+            .to_string();
+        let author = Author::new(author_name, author_email);
+        
+        let message = lines.collect::<Vec<&str>>().join("\n");
 
-        lines.push(format!("tree {}", self.tree_oid));
-        if let Some(parent) = &self.parent {
-            lines.push(format!("parent {}", parent));
-        }
-        lines.push(format!("author {}", self.author.display()));
-        lines.push(format!("committer {}", self.committer.display()));
-        lines.push(String::new());
-        lines.push(self.message.clone());
-
-        lines.join("\n")
+        Ok(Self::new(parent, tree_oid, author, message))
     }
 
     pub fn short_message(&self) -> String {
         self.message.lines().next().unwrap_or("").to_string()
+    }
+}
+
+impl TryFrom<String> for Commit {
+    type Error = anyhow::Error;
+
+    fn try_from(data: String) -> anyhow::Result<Self> {
+        Commit::from(data)
     }
 }
 
@@ -96,5 +136,20 @@ impl Object for Commit {
 
     fn object_type(&self) -> ObjectType {
         ObjectType::Commit
+    }
+
+    fn display(&self) -> String {
+        let mut lines = vec![];
+
+        lines.push(format!("tree {}", self.tree_oid));
+        if let Some(parent) = &self.parent {
+            lines.push(format!("parent {}", parent));
+        }
+        lines.push(format!("author {}", self.author.display()));
+        lines.push(format!("committer {}", self.committer.display()));
+        lines.push(String::new());
+        lines.push(self.message.clone());
+
+        lines.join("\n")
     }
 }

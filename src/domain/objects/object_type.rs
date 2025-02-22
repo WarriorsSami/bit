@@ -13,3 +13,16 @@ impl ObjectType {
         }
     }
 }
+
+impl TryFrom<&str> for ObjectType {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &str) -> anyhow::Result<Self> {
+        match value {
+            "blob" => Ok(ObjectType::Blob),
+            "tree" => Ok(ObjectType::Tree),
+            "commit" => Ok(ObjectType::Commit),
+            _ => Err(anyhow::anyhow!("Invalid object type")),
+        }
+    }
+}

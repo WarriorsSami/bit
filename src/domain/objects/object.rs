@@ -7,6 +7,8 @@ pub trait Object {
     fn serialize(&self) -> Result<Bytes>;
 
     fn object_type(&self) -> ObjectType;
+    
+    fn display(&self) -> String;
 
     fn object_id(&self) -> Result<String> {
         let content = self.serialize()?;

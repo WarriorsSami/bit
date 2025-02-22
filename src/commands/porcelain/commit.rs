@@ -18,7 +18,7 @@ impl Repository {
 
                 self.database().store(blob)?;
 
-                Ok((path.into(), blob_id))
+                Ok(TreeEntry::new(path.into(), blob_id))
             })
             .collect::<anyhow::Result<Vec<TreeEntry>>>()?;
 

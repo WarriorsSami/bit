@@ -58,18 +58,9 @@ impl Database {
 
         // decompress the object content
         let object_content = Self::decompress(object_content.into())?;
-
-        // extract the object content by removing the header
-        let parts = object_content
-            .splitn(2, |&byte| byte == 0)
-            .map(|part| part.to_vec())
-            .collect::<Vec<_>>();
-
-        if parts.len() != 2 {
-            return Err(anyhow::anyhow!("Invalid object file"));
-        }
-
-        Ok(Bytes::from(parts[1].clone()))
+        
+        // return the object content
+        Ok(object_content)
     }
 
     fn write_object(&self, object_path: PathBuf, object_content: Bytes) -> anyhow::Result<()> {
