@@ -1,3 +1,4 @@
+use std::marker::PhantomData;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
@@ -18,17 +19,18 @@ impl TreeEntry {
 const MODE: &str = "100644";
 
 #[derive(Debug, Clone)]
-pub struct Tree {
+pub struct Tree<'tree> {
     entries: Vec<TreeEntry>,
+    marker: PhantomData<&'tree ()>,
 }
 
-impl Tree {
+impl<'tree> Tree<'tree> {
     // TODO: sort entries
     pub fn new(entries: Vec<TreeEntry>) -> Self {
-        Self { entries }
+        Self { entries, marker: Default::default() }
     }
 
-    fn from(data: String) -> anyhow::Result<Self> {
+    fn from(data: &'tree str) -> anyhow::Result<Self> {
         let entries = data
             .split("\0")
             .nth(1)
@@ -50,19 +52,19 @@ impl Tree {
             })
             .collect::<anyhow::Result<Vec<TreeEntry>>>()?;
 
-        Ok(Self { entries })
+        Ok(Self { entries, marker: Default::default() })
     }
 }
 
-impl TryFrom<String> for Tree {
+impl<'tree> TryFrom<&'tree str> for Tree<'tree> {
     type Error = anyhow::Error;
 
-    fn try_from(data: String) -> anyhow::Result<Self> {
+    fn try_from(data: &'tree str) -> anyhow::Result<Self> {
         Tree::from(data)
     }
 }
 
-impl Object for Tree {
+impl<'tree> Object for Tree<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let entries = self
             .entries

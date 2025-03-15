@@ -3,16 +3,16 @@ use crate::domain::objects::object_type::ObjectType;
 use bytes::Bytes;
 
 #[derive(Debug, Clone)]
-pub struct Blob {
-    content: String,
+pub struct Blob<'blob> {
+    content: &'blob str,
 }
 
-impl Blob {
-    pub fn new(content: String) -> Self {
+impl<'blob> Blob<'blob> {
+    pub fn new(content: &'blob str) -> Self {
         Blob { content }
     }
 
-    fn from(data: String) -> anyhow::Result<Self> {
+    fn from(data: &'blob str) -> anyhow::Result<Self> {
         let parts = data
             .splitn(2, '\0')
             .collect::<Vec<&str>>();
@@ -21,19 +21,19 @@ impl Blob {
             return Err(anyhow::anyhow!("Invalid blob file"));
         }
 
-        Ok(Self::new(parts[1].to_string()))
+        Ok(Self::new(parts[1]))
     }
 }
 
-impl TryFrom<String> for Blob {
+impl<'blob> TryFrom<&'blob str> for Blob<'blob> {
     type Error = anyhow::Error;
 
-    fn try_from(data: String) -> anyhow::Result<Self> {
+    fn try_from(data: &'blob str) -> anyhow::Result<Self> {
         Blob::from(data)
     }
 }
 
-impl Object for Blob {
+impl<'blob> Object for Blob<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let object_content = format!(
             "{} {}\0{}",
@@ -50,6 +50,6 @@ impl Object for Blob {
     }
 
     fn display(&self) -> String {
-        self.content.clone()
+        self.content.to_string()
     }
 }

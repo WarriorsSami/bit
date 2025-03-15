@@ -10,6 +10,7 @@ impl Repository {
         // read object file
         let object_data = self.database().load(object_id)?;
         let object_data = String::from_utf8(object_data.to_vec())?;
+        let object_data = object_data.trim();
 
         // deserialize based on object type extracted from header
         let object_type: ObjectType = object_data
@@ -17,6 +18,7 @@ impl Repository {
             .next()
             .unwrap_or("")
             .try_into()?;
+
         let object: Box<dyn Object> = match object_type {
             ObjectType::Blob => Box::new(Blob::try_from(object_data)?),
             ObjectType::Tree => Box::new(Tree::try_from(object_data)?),

@@ -32,16 +32,16 @@ impl Author {
 }
 
 #[derive(Debug, Clone)]
-pub struct Commit {
-    parent: Option<String>,
-    tree_oid: String,
+pub struct Commit<'commit> {
+    parent: Option<&'commit str>,
+    tree_oid: &'commit str,
     author: Author,
     committer: Author,
     message: String,
 }
 
-impl Commit {
-    pub fn new(parent: Option<String>, tree_oid: String, author: Author, message: String) -> Self {
+impl<'commit> Commit<'commit> {
+    pub fn new(parent: Option<&'commit str>, tree_oid: &'commit str, author: Author, message: String) -> Self {
         Commit {
             parent,
             tree_oid,
@@ -51,7 +51,7 @@ impl Commit {
         }
     }
 
-    fn from(data: String) -> anyhow::Result<Self> {
+    fn from(data: &'commit str) -> anyhow::Result<Self> {
         let mut lines = data.lines();
         lines.next().context("Invalid commit object: missing header")?;
         
@@ -60,8 +60,7 @@ impl Commit {
             .context("Invalid commit object: missing tree")?
             .split_whitespace()
             .nth(1)
-            .context("Invalid commit object: missing tree")?
-            .to_string();
+            .context("Invalid commit object: missing tree")?;
         
         let parent = lines
             .next()
@@ -70,7 +69,6 @@ impl Commit {
                 line.split_whitespace()
                     .nth(1)
                     .context("Invalid commit object: missing parent")
-                    .map(|s| s.to_string())
             })
             .transpose()?;
         
@@ -103,15 +101,15 @@ impl Commit {
     }
 }
 
-impl TryFrom<String> for Commit {
+impl<'commit> TryFrom<&'commit str> for Commit<'commit> {
     type Error = anyhow::Error;
 
-    fn try_from(data: String) -> anyhow::Result<Self> {
+    fn try_from(data: &'commit str) -> anyhow::Result<Self> {
         Commit::from(data)
     }
 }
 
-impl Object for Commit {
+impl<'commit> Object for Commit<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let mut object_content = vec![];
 
@@ -127,7 +125,7 @@ impl Object for Commit {
         object_content.push(format!("author {}", self.author.display()));
         object_content.push(format!("committer {}", self.committer.display()));
         object_content.push(String::new());
-        object_content.push(self.message.clone());
+        object_content.push(self.message.to_string());
 
         let object_content = object_content.join("\n");
 
@@ -148,7 +146,7 @@ impl Object for Commit {
         lines.push(format!("author {}", self.author.display()));
         lines.push(format!("committer {}", self.committer.display()));
         lines.push(String::new());
-        lines.push(self.message.clone());
+        lines.push(self.message.to_string());
 
         lines.join("\n")
     }

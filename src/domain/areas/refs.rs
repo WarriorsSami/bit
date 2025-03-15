@@ -11,7 +11,7 @@ impl Refs {
         Refs { path }
     }
 
-    pub fn update_head(&self, oid: String) -> anyhow::Result<()> {
+    pub fn update_head(&self, oid: &str) -> anyhow::Result<()> {
         // open HEAD file as WRONLY and CREAT to write commit_id to it
         let mut head_file = std::fs::OpenOptions::new()
             .write(true)

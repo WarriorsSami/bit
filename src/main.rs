@@ -70,7 +70,7 @@ fn main() -> Result<()> {
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.commit(message.into())?
+            repository.commit(message.as_str())?
         }
     }
 
