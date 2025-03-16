@@ -41,7 +41,12 @@ pub struct Commit<'commit> {
 }
 
 impl<'commit> Commit<'commit> {
-    pub fn new(parent: Option<&'commit str>, tree_oid: &'commit str, author: Author, message: String) -> Self {
+    pub fn new(
+        parent: Option<&'commit str>,
+        tree_oid: &'commit str,
+        author: Author,
+        message: String,
+    ) -> Self {
         Commit {
             parent,
             tree_oid,
@@ -53,15 +58,17 @@ impl<'commit> Commit<'commit> {
 
     fn from(data: &'commit str) -> anyhow::Result<Self> {
         let mut lines = data.lines();
-        lines.next().context("Invalid commit object: missing header")?;
-        
+        lines
+            .next()
+            .context("Invalid commit object: missing header")?;
+
         let tree_oid = lines
             .next()
             .context("Invalid commit object: missing tree")?
             .split_whitespace()
             .nth(1)
             .context("Invalid commit object: missing tree")?;
-        
+
         let parent = lines
             .next()
             .filter(|line| line.starts_with("parent"))
@@ -71,7 +78,7 @@ impl<'commit> Commit<'commit> {
                     .context("Invalid commit object: missing parent")
             })
             .transpose()?;
-        
+
         let author_line = lines
             .next()
             .context("Invalid commit object: missing author")?;
@@ -90,7 +97,7 @@ impl<'commit> Commit<'commit> {
             .trim_matches(|c| c == '<' || c == '>')
             .to_string();
         let author = Author::new(author_name, author_email);
-        
+
         let message = lines.collect::<Vec<&str>>().join("\n");
 
         Ok(Self::new(parent, tree_oid, author, message))

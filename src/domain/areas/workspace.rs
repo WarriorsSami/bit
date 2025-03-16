@@ -1,4 +1,6 @@
-use std::path::Path;
+use crate::domain::objects::entry::EntryMode;
+use is_executable::IsExecutable;
+use std::path::{Path, PathBuf};
 
 const IGNORED_PATHS: [&str; 3] = [".git", ".", ".."];
 
@@ -11,9 +13,12 @@ impl Workspace {
         Workspace { path }
     }
 
-    pub fn list_files(&self) -> anyhow::Result<Vec<String>> {
-        // read only the first level of the directory (for now)
-        let files = std::fs::read_dir(&self.path)?
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+    
+    pub fn list_files(&self, dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
+        let file_names = std::fs::read_dir(dir)?
             .flatten()
             .filter_map(|entry| {
                 let path = entry.path();
@@ -22,19 +27,43 @@ impl Workspace {
                 if IGNORED_PATHS.contains(&file_name.as_str()) {
                     return None;
                 }
-
-                Some(file_name)
+                
+                if path.is_dir() {
+                    let nested_files = self.list_files(&path);
+                    Some(nested_files)
+                } else {
+                    // return relative file path from workspace root
+                    let path = path.strip_prefix(&self.path).ok()?.to_path_buf();
+                    Some(Ok(vec![path]))
+                }
             })
+            .flatten()
+            .flatten()
             .collect();
 
-        Ok(files)
+        Ok(file_names)
     }
 
-    pub fn read_file(&self, file_name: &str) -> anyhow::Result<String> {
-        let file_path = self.path.join(file_name);
+    pub fn read_file(&self, file_path: &Path) -> anyhow::Result<String> {
+        let file_path = self.path.join(file_path);
 
         let content = std::fs::read_to_string(file_path)?;
 
         Ok(content)
+    }
+
+    pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMode> {
+        let file_path = self.path.join(file_path);
+
+        let metadata = std::fs::metadata(&file_path)?;
+
+        if metadata.is_dir() {
+            Ok(EntryMode::Directory)
+        } else {
+            match file_path.is_executable() {
+                true => Ok(EntryMode::Executable),
+                false => Ok(EntryMode::Regular),
+            }
+        }
     }
 }

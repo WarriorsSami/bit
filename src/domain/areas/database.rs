@@ -58,7 +58,7 @@ impl Database {
 
         // decompress the object content
         let object_content = Self::decompress(object_content.into())?;
-        
+
         // return the object content
         Ok(object_content)
     }

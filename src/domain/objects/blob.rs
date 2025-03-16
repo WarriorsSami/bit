@@ -13,9 +13,7 @@ impl<'blob> Blob<'blob> {
     }
 
     fn from(data: &'blob str) -> anyhow::Result<Self> {
-        let parts = data
-            .splitn(2, '\0')
-            .collect::<Vec<&str>>();
+        let parts = data.splitn(2, '\0').collect::<Vec<&str>>();
 
         if parts.len() != 2 {
             return Err(anyhow::anyhow!("Invalid blob file"));

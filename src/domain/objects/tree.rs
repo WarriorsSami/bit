@@ -1,33 +1,26 @@
-use std::marker::PhantomData;
+use crate::domain::objects::entry::{Entry, EntryMode};
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
-
-#[derive(Debug, Clone)]
-pub struct TreeEntry {
-    pub path: String,
-    pub id: String,
-}
-
-impl TreeEntry {
-    pub fn new(path: String, id: String) -> Self {
-        Self { path, id }
-    }
-}
-
-const MODE: &str = "100644";
+use std::marker::PhantomData;
 
 #[derive(Debug, Clone)]
 pub struct Tree<'tree> {
-    entries: Vec<TreeEntry>,
+    entries: Vec<Entry>,
     marker: PhantomData<&'tree ()>,
 }
 
 impl<'tree> Tree<'tree> {
-    // TODO: sort entries
-    pub fn new(entries: Vec<TreeEntry>) -> Self {
-        Self { entries, marker: Default::default() }
+    pub fn new(entries: Vec<Entry>) -> Self {
+        // sort entries by name
+        let mut entries = entries;
+        entries.sort_by(|a, b| a.name.cmp(&b.name));
+
+        Self {
+            entries,
+            marker: Default::default(),
+        }
     }
 
     fn from(data: &'tree str) -> anyhow::Result<Self> {
@@ -39,20 +32,25 @@ impl<'tree> Tree<'tree> {
             .filter(|line| !line.is_empty())
             .map(|line| {
                 let mut parts = line.split_whitespace();
-                let _mode = parts.next().context("Invalid tree object: missing mode")?;
-                let _type = parts.next().context("Invalid tree object: missing type")?;
-                let id = parts
+                let mode: EntryMode = parts
                     .next()
-                    .context("Invalid tree object: missing id")?;
-                let path = parts
+                    .context("Invalid tree object: missing mode")?
+                    .try_into()?;
+                let _object_type: ObjectType = parts
                     .next()
-                    .context("Invalid tree object: missing path")?;
-                
-                Ok(TreeEntry::new(path.to_string(), id.to_string()))
-            })
-            .collect::<anyhow::Result<Vec<TreeEntry>>>()?;
+                    .context("Invalid tree object: missing type")?
+                    .try_into()?;
+                let id = parts.next().context("Invalid tree object: missing id")?;
+                let path = parts.next().context("Invalid tree object: missing path")?;
 
-        Ok(Self { entries, marker: Default::default() })
+                Ok(Entry::new(path.to_string(), id.to_string(), mode))
+            })
+            .collect::<anyhow::Result<Vec<Entry>>>()?;
+
+        Ok(Self {
+            entries,
+            marker: Default::default(),
+        })
     }
 }
 
@@ -64,7 +62,7 @@ impl<'tree> TryFrom<&'tree str> for Tree<'tree> {
     }
 }
 
-impl<'tree> Object for Tree<'_> {
+impl Object for Tree<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let entries = self
             .entries
@@ -72,15 +70,15 @@ impl<'tree> Object for Tree<'_> {
             .map(|tree_entry| {
                 format!(
                     "{} {} {}\t{}",
-                    MODE,
+                    tree_entry.mode.as_str(),
                     ObjectType::Blob.as_str(),
-                    tree_entry.id,
-                    tree_entry.path
+                    tree_entry.oid,
+                    tree_entry.name
                 )
             })
             .collect::<Vec<String>>()
             .join("\n");
-        
+
         let object_content = format!(
             "{} {}\0{}",
             self.object_type().as_str(),
@@ -101,10 +99,10 @@ impl<'tree> Object for Tree<'_> {
             .map(|tree_entry| {
                 format!(
                     "{} {} {}\t{}",
-                    MODE,
-                    tree_entry.id,
+                    tree_entry.mode.as_str(),
+                    tree_entry.oid,
                     ObjectType::Blob.as_str(),
-                    tree_entry.path
+                    tree_entry.name
                 )
             })
             .collect::<Vec<String>>()

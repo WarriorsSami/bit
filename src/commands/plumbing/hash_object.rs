@@ -5,7 +5,7 @@ use crate::domain::objects::object::Object;
 impl Repository {
     pub fn hash_object(&mut self, object_path: &str, write: bool) -> anyhow::Result<()> {
         // read object file
-        let object_data = self.workspace().read_file(object_path)?;
+        let object_data = self.workspace().read_file(object_path.as_ref())?;
         let object = Blob::new(object_data.as_str());
 
         // hash

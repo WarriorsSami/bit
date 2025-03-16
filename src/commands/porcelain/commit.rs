@@ -1,26 +1,34 @@
 use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::commit::{Author, Commit};
+use crate::domain::objects::entry::Entry;
 use crate::domain::objects::object::Object;
-use crate::domain::objects::tree::{Tree, TreeEntry};
+use crate::domain::objects::tree::Tree;
+use anyhow::Context;
 use std::io::Write;
 
 impl Repository {
-    pub fn commit<'a>(&mut self, message: &str) -> anyhow::Result<()> {
-        let entries = self
-            .workspace()
-            .list_files()?
+    pub fn commit(&mut self, message: &str) -> anyhow::Result<()> {
+        let files = self.workspace().list_files(self.workspace().path())?;
+
+        let entries = files
             .into_iter()
             .map(|path| {
-                let data = self.workspace().read_file(path.as_str())?;
+                let data = self.workspace().read_file(&path)?;
                 let blob = Blob::new(data.as_str());
                 let blob_id = blob.object_id()?;
 
                 self.database().store(blob)?;
 
-                Ok(TreeEntry::new(path, blob_id))
+                let stat = self.workspace().stat_file(&path)?;
+                let file_name = path
+                    .file_name()
+                    .context("Invalid file name")?
+                    .to_string_lossy()
+                    .to_string();
+                Ok(Entry::new(file_name, blob_id, stat))
             })
-            .collect::<anyhow::Result<Vec<TreeEntry>>>()?;
+            .collect::<anyhow::Result<Vec<Entry>>>()?;
 
         let tree = Tree::new(entries);
         let tree_id = tree.object_id()?;
