@@ -148,6 +148,8 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
         }
     }
 
+    let input_tree = common::TreeNode::new(file_names);
+
     // create fake author config and message
     let author_name = Name().fake::<String>().replace(" ", "_");
     let author_email = FreeEmail().fake::<String>();
@@ -214,15 +216,12 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
         .unwrap()
         .split_whitespace()
         .last()
-        .unwrap();
+        .unwrap()
+        .to_string();
 
-    let mut sut = Command::cargo_bin("bit")?;
-    sut.current_dir(dir.path())
-        .arg("cat-file")
-        .arg("-p")
-        .arg(tree_oid);
-
-    sut.assert().success();
+    let output_tree = common::TreeNode::from_git_object(&dir, tree_oid)?;
+    
+    assert_eq!(output_tree, input_tree);
 
     Ok(())
 }

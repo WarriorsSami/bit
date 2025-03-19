@@ -16,7 +16,7 @@ impl Workspace {
     pub fn path(&self) -> &Path {
         &self.path
     }
-    
+
     pub fn list_files(&self, dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
         let file_names = std::fs::read_dir(dir)?
             .flatten()
@@ -27,7 +27,7 @@ impl Workspace {
                 if IGNORED_PATHS.contains(&file_name.as_str()) {
                     return None;
                 }
-                
+
                 if path.is_dir() {
                     let nested_files = self.list_files(&path);
                     Some(nested_files)

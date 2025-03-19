@@ -116,7 +116,7 @@ impl<'commit> TryFrom<&'commit str> for Commit<'commit> {
     }
 }
 
-impl<'commit> Object for Commit<'_> {
+impl Object for Commit<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let mut object_content = vec![];
 
