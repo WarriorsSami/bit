@@ -4,7 +4,6 @@ use crate::domain::objects::commit::{Author, Commit};
 use crate::domain::objects::entry::Entry;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::tree::Tree;
-use anyhow::Context;
 use std::io::Write;
 
 impl Repository {
@@ -15,22 +14,18 @@ impl Repository {
             .into_iter()
             .map(|path| {
                 let data = self.workspace().read_file(&path)?;
-                let blob = Blob::new(data.as_str());
+                let stat = self.workspace().stat_file(&path)?;
+                
+                let blob = Blob::new(data.as_str(), stat.clone().try_into()?);
                 let blob_id = blob.object_id()?;
 
                 self.database().store(blob)?;
-
-                let stat = self.workspace().stat_file(&path)?;
-                let file_name = path
-                    .file_name()
-                    .context("Invalid file name")?
-                    .to_string_lossy()
-                    .to_string();
-                Ok(Entry::new(file_name, blob_id, stat))
+                
+                Ok(Entry::new(path, blob_id, stat))
             })
             .collect::<anyhow::Result<Vec<Entry>>>()?;
 
-        let tree = Tree::new(entries);
+        let tree = Tree::build(entries)?;
         let tree_id = tree.object_id()?;
         self.database().store(tree)?;
 

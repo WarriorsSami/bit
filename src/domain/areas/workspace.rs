@@ -1,4 +1,4 @@
-use crate::domain::objects::entry::EntryMode;
+use crate::domain::objects::entry::{EntryMode, FileMode};
 use is_executable::IsExecutable;
 use std::path::{Path, PathBuf};
 
@@ -61,8 +61,8 @@ impl Workspace {
             Ok(EntryMode::Directory)
         } else {
             match file_path.is_executable() {
-                true => Ok(EntryMode::Executable),
-                false => Ok(EntryMode::Regular),
+                true => Ok(EntryMode::File(FileMode::Executable)),
+                false => Ok(EntryMode::File(FileMode::Regular)),
             }
         }
     }

@@ -3,24 +3,84 @@ use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
+use std::collections::BTreeMap;
 use std::marker::PhantomData;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
+enum TreeEntry<'e> {
+    File(Entry),
+    Directory(Tree<'e>),
+    LazyDirectory(Entry),
+}
+
+impl TreeEntry<'_> {
+    fn mode(&self) -> &EntryMode {
+        match self {
+            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.mode,
+            TreeEntry::Directory(_) => &EntryMode::Directory,
+        }
+    }
+
+    fn oid(&self) -> anyhow::Result<String> {
+        match self {
+            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => Ok(entry.oid.clone()),
+            TreeEntry::Directory(tree) => tree.object_id(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct Tree<'tree> {
-    entries: Vec<Entry>,
-    marker: PhantomData<&'tree ()>,
+    entries: BTreeMap<String, TreeEntry<'tree>>,
+    _marker: PhantomData<&'tree ()>,
 }
 
 impl<'tree> Tree<'tree> {
-    pub fn new(entries: Vec<Entry>) -> Self {
-        // sort entries by name
+    pub fn build(entries: Vec<Entry>) -> anyhow::Result<Self> {
         let mut entries = entries;
         entries.sort_by(|a, b| a.name.cmp(&b.name));
 
-        Self {
-            entries,
-            marker: Default::default(),
+        let mut root = Self::default();
+
+        for entry in entries {
+            let parents = entry.parent_dirs()?;
+            root.add_entry(parents, &entry)?;
         }
+
+        Ok(root)
+    }
+
+    fn add_entry(&mut self, parents: Vec<&Path>, entry: &Entry) -> anyhow::Result<()> {
+        if parents.is_empty() {
+            self.entries.insert(
+                entry.basename()?.to_string(),
+                TreeEntry::File(entry.clone()),
+            );
+        } else {
+            let parent = parents[0]
+                .file_name()
+                .and_then(|s| s.to_str())
+                .context("Invalid parent")?;
+            let tree = match self.entries.get_mut(parent) {
+                Some(TreeEntry::Directory(tree)) => tree,
+                _ => {
+                    let tree = Self::default();
+                    let entry = self.entries
+                        .insert(parent.to_string(), TreeEntry::Directory(tree.clone()))
+                        .and_then(|_| self.entries.get_mut(parent))
+                        .context("Failed to insert directory")?;
+                    
+                    match entry {
+                        TreeEntry::Directory(tree) => tree,
+                        _ => unreachable!(),
+                    }
+                }
+            };
+            tree.add_entry(parents[1..].to_vec(), entry)?;
+        }
+
+        Ok(())
     }
 
     fn from(data: &'tree str) -> anyhow::Result<Self> {
@@ -43,13 +103,20 @@ impl<'tree> Tree<'tree> {
                 let id = parts.next().context("Invalid tree object: missing id")?;
                 let path = parts.next().context("Invalid tree object: missing path")?;
 
-                Ok(Entry::new(path.to_string(), id.to_string(), mode))
+                Ok((
+                    path.to_string(),
+                    TreeEntry::LazyDirectory(Entry {
+                        name: PathBuf::from(path),
+                        oid: id.to_string(),
+                        mode,
+                    }),
+                ))
             })
-            .collect::<anyhow::Result<Vec<Entry>>>()?;
+            .collect::<anyhow::Result<BTreeMap<String, TreeEntry<'tree>>>>()?;
 
         Ok(Self {
             entries,
-            marker: Default::default(),
+            _marker: Default::default(),
         })
     }
 }
@@ -67,16 +134,16 @@ impl Object for Tree<'_> {
         let entries = self
             .entries
             .iter()
-            .map(|tree_entry| {
-                format!(
+            .map(|(name, tree_entry)| {
+                Ok(format!(
                     "{} {} {}\t{}",
-                    tree_entry.mode.as_str(),
+                    tree_entry.mode().as_str(),
                     ObjectType::Blob.as_str(),
-                    tree_entry.oid,
-                    tree_entry.name
-                )
+                    tree_entry.oid()?.as_str(),
+                    name
+                ))
             })
-            .collect::<Vec<String>>()
+            .collect::<anyhow::Result<Vec<String>>>()?
             .join("\n");
 
         let object_content = format!(
@@ -96,13 +163,13 @@ impl Object for Tree<'_> {
     fn display(&self) -> String {
         self.entries
             .iter()
-            .map(|tree_entry| {
+            .map(|(name, tree_entry)| {
                 format!(
                     "{} {} {}\t{}",
-                    tree_entry.mode.as_str(),
-                    tree_entry.oid,
+                    tree_entry.mode().as_str(),
                     ObjectType::Blob.as_str(),
-                    tree_entry.name
+                    tree_entry.oid().unwrap_or_default(),
+                    name
                 )
             })
             .collect::<Vec<String>>()

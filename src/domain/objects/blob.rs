@@ -1,3 +1,4 @@
+use crate::domain::objects::entry::FileMode;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
 use bytes::Bytes;
@@ -5,11 +6,16 @@ use bytes::Bytes;
 #[derive(Debug, Clone)]
 pub struct Blob<'blob> {
     content: &'blob str,
+    stat: FileMode,
 }
 
 impl<'blob> Blob<'blob> {
-    pub fn new(content: &'blob str) -> Self {
-        Blob { content }
+    pub fn new(content: &'blob str, stat: FileMode) -> Self {
+        Blob { content, stat }
+    }
+    
+    pub fn mode(&self) -> &FileMode {
+        &self.stat
     }
 
     fn from(data: &'blob str) -> anyhow::Result<Self> {
@@ -19,7 +25,7 @@ impl<'blob> Blob<'blob> {
             return Err(anyhow::anyhow!("Invalid blob file"));
         }
 
-        Ok(Self::new(parts[1]))
+        Ok(Self::new(parts[1], Default::default()))
     }
 }
 
