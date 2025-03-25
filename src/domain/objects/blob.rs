@@ -13,7 +13,7 @@ impl<'blob> Blob<'blob> {
     pub fn new(content: &'blob str, stat: FileMode) -> Self {
         Blob { content, stat }
     }
-    
+
     pub fn mode(&self) -> &FileMode {
         &self.stat
     }

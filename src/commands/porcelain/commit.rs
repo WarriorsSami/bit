@@ -15,19 +15,22 @@ impl Repository {
             .map(|path| {
                 let data = self.workspace().read_file(&path)?;
                 let stat = self.workspace().stat_file(&path)?;
-                
+
                 let blob = Blob::new(data.as_str(), stat.clone().try_into()?);
                 let blob_id = blob.object_id()?;
 
                 self.database().store(blob)?;
-                
+
                 Ok(Entry::new(path, blob_id, stat))
             })
             .collect::<anyhow::Result<Vec<Entry>>>()?;
 
         let tree = Tree::build(entries)?;
         let tree_id = tree.object_id()?;
-        self.database().store(tree)?;
+        let store_tree = &|tree: &Tree| {
+            self.database().store(tree.clone())
+        };
+        tree.traverse(store_tree)?;
 
         let parent = self.refs().read_head();
         let is_root = match parent {

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use assert_cmd::Command;
 use assert_fs::TempDir;
 
@@ -35,6 +37,13 @@ impl TreeNode {
         }
     }
 
+    fn name(&self) -> &str {
+        match self {
+            TreeNode::File { name } => name,
+            TreeNode::Directory { name, .. } => name,
+        }
+    }
+
     pub fn from_git_object(
         repo_dir: &TempDir,
         tree_oid: String,
@@ -52,15 +61,19 @@ impl TreeNode {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let children = output
             .lines()
-            .map(|line| {
+            .flat_map(|line| {
                 let mut parts = line.split_whitespace();
                 let _mode = parts.next().expect("Missing mode");
-                let oid = parts.next().expect("Missing oid").to_string();
                 let object_type = parts.next().expect("Missing object type").to_string();
+                let oid = parts.next().expect("Missing oid").to_string();
                 let name = parts.next().expect("Missing name").to_string();
-                
+
                 assert_eq!(oid.len(), 40, "Invalid oid: {}", oid);
-                assert!(oid.chars().all(|c| c.is_ascii_hexdigit()), "Invalid oid: {}", oid);
+                assert!(
+                    oid.chars().all(|c| c.is_ascii_hexdigit()),
+                    "Invalid oid: {}",
+                    oid
+                );
 
                 match object_type.as_str() {
                     "blob" => Ok(TreeNode::File { name }),
@@ -74,7 +87,24 @@ impl TreeNode {
                     _ => Err(format!("Unknown object type: {}", object_type)),
                 }
             })
-            .collect::<Result<Vec<_>, String>>()?;
+            // group the files/directories by their parent directory
+            .fold(Vec::new(), |mut acc, node| {
+                match &node {
+                    TreeNode::File { .. } => {
+                        acc.push(node);
+                    }
+                    TreeNode::Directory { name, .. } => {
+                        let parent = name.split('/').next().unwrap();
+                        let parent_idx = acc.iter().position(|n| n.name() == parent);
+                        if let Some(idx) = parent_idx {
+                            if let TreeNode::Directory { children, .. } = &mut acc[idx] {
+                                children.push(node);
+                            }
+                        }
+                    }
+                }
+                acc
+            });
 
         Ok(TreeNode::Directory {
             name: parent_dir,
@@ -110,6 +140,23 @@ impl TreeNode {
                     TreeNode::File { name: f }
                 }
             })
-            .collect()
+            // group the files/directories by their parent directory
+            .fold(Vec::new(), |mut acc, node| {
+                match &node {
+                    TreeNode::File { .. } => {
+                        acc.push(node);
+                    }
+                    TreeNode::Directory { name, .. } => {
+                        let parent = name.split('/').next().unwrap();
+                        let parent_idx = acc.iter().position(|n| n.name() == parent);
+                        if let Some(idx) = parent_idx {
+                            if let TreeNode::Directory { children, .. } = &mut acc[idx] {
+                                children.push(node);
+                            }
+                        }
+                    }
+                }
+                acc
+            })
     }
 }

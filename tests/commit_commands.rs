@@ -220,8 +220,8 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
         .to_string();
 
     let output_tree = common::TreeNode::from_git_object(&dir, tree_oid)?;
-    
-    assert_eq!(output_tree, input_tree);
+
+    assert_eq!(input_tree, output_tree);
 
     Ok(())
 }

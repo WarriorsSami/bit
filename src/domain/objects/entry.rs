@@ -11,24 +11,25 @@ impl Entry {
     pub fn new(name: PathBuf, oid: String, mode: EntryMode) -> Self {
         Self { name, oid, mode }
     }
-    
+
     pub fn basename(&self) -> anyhow::Result<&str> {
-        self.name.file_name()
+        self.name
+            .file_name()
             .and_then(|name| name.to_str())
             .ok_or_else(|| anyhow::anyhow!("Invalid file name"))
     }
-    
+
     pub fn parent_dirs(&self) -> anyhow::Result<Vec<&Path>> {
         let mut dirs = Vec::new();
         let mut parent = self.name.parent();
-        
+
         while let Some(new_parent) = parent {
             dirs.push(new_parent);
             parent = new_parent.parent();
         }
         dirs.reverse();
         let dirs = dirs[1..].to_vec();
-        
+
         Ok(dirs)
     }
 }
@@ -107,7 +108,7 @@ mod tests {
         let dirs = entry.parent_dirs().unwrap();
         assert_eq!(dirs, vec![Path::new("a"), Path::new("a/b")]);
     }
-    
+
     #[test]
     fn test_entry_parent_dirs_root() {
         let entry = Entry::new(PathBuf::from("a"), "".to_string(), EntryMode::Directory);
@@ -115,7 +116,7 @@ mod tests {
         let dirs = entry.parent_dirs().unwrap();
         assert_eq!(dirs, Vec::<&Path>::new());
     }
-    
+
     #[test]
     fn test_entry_basename() {
         let entry = Entry::new(PathBuf::from("a/b/c"), "".to_string(), EntryMode::Directory);

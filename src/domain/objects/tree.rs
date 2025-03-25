@@ -15,6 +15,13 @@ enum TreeEntry<'e> {
 }
 
 impl TreeEntry<'_> {
+    fn object_type(&self) -> ObjectType {
+        match self {
+            TreeEntry::File(_) => ObjectType::Blob,
+            TreeEntry::Directory(_) | TreeEntry::LazyDirectory(_) => ObjectType::Tree,
+        }
+    }
+
     fn mode(&self) -> &EntryMode {
         match self {
             TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.mode,
@@ -51,6 +58,20 @@ impl<'tree> Tree<'tree> {
         Ok(root)
     }
 
+    pub fn traverse<F>(&self, func: &F) -> anyhow::Result<()>
+    where
+        F: Fn(&Tree<'tree>) -> anyhow::Result<()>,
+    {
+        for entry in &self.entries {
+            if let TreeEntry::Directory(tree) = entry.1 {
+                tree.traverse(func)?;
+            }
+        }
+        func(self)?;
+
+        Ok(())
+    }
+
     fn add_entry(&mut self, parents: Vec<&Path>, entry: &Entry) -> anyhow::Result<()> {
         if parents.is_empty() {
             self.entries.insert(
@@ -66,13 +87,12 @@ impl<'tree> Tree<'tree> {
                 Some(TreeEntry::Directory(tree)) => tree,
                 _ => {
                     let tree = Self::default();
-                    let entry = self.entries
-                        .insert(parent.to_string(), TreeEntry::Directory(tree.clone()))
-                        .and_then(|_| self.entries.get_mut(parent))
-                        .context("Failed to insert directory")?;
+                    self
+                        .entries
+                        .insert(parent.to_string(), TreeEntry::Directory(tree.clone()));
                     
-                    match entry {
-                        TreeEntry::Directory(tree) => tree,
+                    match self.entries.get_mut(parent) {
+                        Some(TreeEntry::Directory(tree)) => tree,
                         _ => unreachable!(),
                     }
                 }
@@ -96,7 +116,7 @@ impl<'tree> Tree<'tree> {
                     .next()
                     .context("Invalid tree object: missing mode")?
                     .try_into()?;
-                let _object_type: ObjectType = parts
+                let object_type: ObjectType = parts
                     .next()
                     .context("Invalid tree object: missing type")?
                     .try_into()?;
@@ -105,11 +125,19 @@ impl<'tree> Tree<'tree> {
 
                 Ok((
                     path.to_string(),
-                    TreeEntry::LazyDirectory(Entry {
-                        name: PathBuf::from(path),
-                        oid: id.to_string(),
-                        mode,
-                    }),
+                    match object_type {
+                        ObjectType::Blob => TreeEntry::File(Entry {
+                            name: PathBuf::from(path),
+                            oid: id.to_string(),
+                            mode,
+                        }),
+                        ObjectType::Tree => TreeEntry::LazyDirectory(Entry {
+                            name: PathBuf::from(path),
+                            oid: id.to_string(),
+                            mode,
+                        }),
+                        _ => unreachable!(),
+                    }
                 ))
             })
             .collect::<anyhow::Result<BTreeMap<String, TreeEntry<'tree>>>>()?;
@@ -138,7 +166,7 @@ impl Object for Tree<'_> {
                 Ok(format!(
                     "{} {} {}\t{}",
                     tree_entry.mode().as_str(),
-                    ObjectType::Blob.as_str(),
+                    tree_entry.object_type().as_str(),
                     tree_entry.oid()?.as_str(),
                     name
                 ))
@@ -167,7 +195,7 @@ impl Object for Tree<'_> {
                 format!(
                     "{} {} {}\t{}",
                     tree_entry.mode().as_str(),
-                    ObjectType::Blob.as_str(),
+                    tree_entry.object_type().as_str(),
                     tree_entry.oid().unwrap_or_default(),
                     name
                 )
