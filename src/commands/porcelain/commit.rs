@@ -8,9 +8,8 @@ use std::io::Write;
 
 impl Repository {
     pub fn commit(&mut self, message: &str) -> anyhow::Result<()> {
-        let files = self.workspace().list_files(self.workspace().path())?;
-
-        let entries = files
+        let entries = self.workspace()
+            .list_files()
             .into_iter()
             .map(|path| {
                 let data = self.workspace().read_file(&path)?;

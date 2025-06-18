@@ -4,7 +4,7 @@ use crate::domain::objects::object::Object;
 
 impl Repository {
     pub fn hash_object(&mut self, object_path: &str, write: bool) -> anyhow::Result<()> {
-        // read object file
+        // read the object file
         let object_data = self.workspace().read_file(object_path.as_ref())?;
         let object = Blob::new(object_data.as_str(), Default::default());
 
@@ -13,7 +13,7 @@ impl Repository {
 
         write!(self.writer(), "{}", object_id)?;
 
-        // write (if write is true) as compressed object file
+        // write (if write is true) as a compressed object file
         if !write {
             return Ok(());
         }
