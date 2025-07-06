@@ -19,7 +19,7 @@ USAGE:
 
 OPTIONS:
     {all-args}
-",
+"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -54,10 +54,25 @@ enum Commands {
         It requires the path to the file to be specified."
     )]
     HashObject {
-        #[arg(short, long, required = false, help = "Write the object to the object database")]
+        #[arg(
+            short,
+            long,
+            required = false,
+            help = "Write the object to the object database"
+        )]
         write: bool,
         #[arg(index = 1)]
         file: String,
+    },
+    #[command(
+        name = "add",
+        about = "Add files or directories to the index",
+        long_about = "This command adds the specified files or directories to the index. \
+        It requires the paths of the files or directories to be specified."
+    )]
+    Add {
+        #[arg(index = 1, help = "The files or directories to add to the index")]
+        paths: Vec<String>,
     },
     #[command(
         name = "commit",
@@ -70,7 +85,8 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
@@ -98,6 +114,13 @@ fn main() -> Result<()> {
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.hash_object(file, *write)?
+        }
+        Commands::Add { paths } => {
+            let pwd = std::env::current_dir()?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.add(paths).await?
         }
         Commands::Commit { message } => {
             let pwd = std::env::current_dir()?;

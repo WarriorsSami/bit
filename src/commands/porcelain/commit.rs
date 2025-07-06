@@ -8,14 +8,15 @@ use std::io::Write;
 
 impl Repository {
     pub fn commit(&mut self, message: &str) -> anyhow::Result<()> {
-        let entries = self.workspace()
+        let entries = self
+            .workspace()
             .list_files()
             .into_iter()
             .map(|path| {
                 let data = self.workspace().read_file(&path)?;
                 let stat = self.workspace().stat_file(&path)?;
 
-                let blob = Blob::new(data.as_str(), stat.clone().try_into()?);
+                let blob = Blob::new(data.as_str(), stat.clone().mode.try_into()?);
                 let blob_id = blob.object_id()?;
 
                 self.database().store(blob)?;
@@ -26,9 +27,7 @@ impl Repository {
 
         let tree = Tree::build(entries)?;
         let tree_id = tree.object_id()?;
-        let store_tree = &|tree: &Tree| {
-            self.database().store(tree.clone())
-        };
+        let store_tree = &|tree: &Tree| self.database().store(tree.clone());
         tree.traverse(store_tree)?;
 
         let parent = self.refs().read_head();
@@ -49,7 +48,7 @@ impl Repository {
             self.writer(),
             "[{}{}] {}",
             is_root,
-            commit_id,
+            &commit_id[..7],
             commit.short_message()
         )?;
 

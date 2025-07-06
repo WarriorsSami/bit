@@ -13,9 +13,9 @@ fn read_blob_object_successfully() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("bit")?;
     cmd.current_dir(dir.path()).arg("init");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Initialized git directory"));
+    cmd.assert().success().stdout(predicate::str::contains(
+        "Initialized empty Git repository in",
+    ));
 
     let file_name = format!("{}.txt", Word().fake::<String>());
     let file_path = dir.child(file_name.clone());
@@ -64,9 +64,9 @@ fn write_blob_object_successfully() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::cargo_bin("bit")?;
     cmd.current_dir(dir.path()).arg("init");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Initialized git directory"));
+    cmd.assert().success().stdout(predicate::str::contains(
+        "Initialized empty Git repository in",
+    ));
 
     let file_name = format!("{}.txt", Word().fake::<String>());
     let file_path = dir.child(file_name.clone());

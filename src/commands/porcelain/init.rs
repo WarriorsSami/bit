@@ -15,7 +15,7 @@ impl Repository {
 
         write!(
             self.writer(),
-            "Initialized git directory at {}",
+            "Initialized empty Git repository in {}",
             self.path().display()
         )?;
 

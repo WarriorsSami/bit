@@ -1,12 +1,16 @@
 use crate::domain::areas::database::Database;
+use crate::domain::areas::index::Index;
 use crate::domain::areas::refs::Refs;
 use crate::domain::areas::workspace::Workspace;
 use std::cell::{RefCell, RefMut};
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 pub struct Repository {
     path: Box<Path>,
     writer: RefCell<Box<dyn std::io::Write>>,
+    index: Index,
     database: Database,
     workspace: Workspace,
     refs: Refs,
@@ -20,6 +24,7 @@ impl Repository {
             std::fs::create_dir_all(&path)?;
         }
 
+        let index = Index::new(path.join(".git").join("index").into_boxed_path());
         let database = Database::new(path.join(".git").join("objects").into_boxed_path());
         let workspace = Workspace::new(path.clone().into_boxed_path());
         let refs = Refs::new(path.join(".git").into_boxed_path());
@@ -27,6 +32,7 @@ impl Repository {
         Ok(Repository {
             path: path.into_boxed_path(),
             writer: RefCell::new(writer),
+            index,
             database,
             workspace,
             refs,
@@ -39,6 +45,10 @@ impl Repository {
 
     pub fn writer(&self) -> RefMut<Box<dyn std::io::Write>> {
         self.writer.borrow_mut()
+    }
+
+    pub fn index(&self) -> Arc<Mutex<Index>> {
+        Arc::new(Mutex::new(self.index.clone()))
     }
 
     pub fn database(&self) -> &Database {

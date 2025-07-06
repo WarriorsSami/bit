@@ -15,7 +15,8 @@ pub trait Object {
         let mut hasher = Sha1::new();
         hasher.update(&content);
 
-        Ok(format!("{:x}", hasher.finalize()))
+        let oid = hasher.finalize();
+        Ok(format!("{oid:x}"))
     }
 
     fn object_path(&self) -> Result<String> {

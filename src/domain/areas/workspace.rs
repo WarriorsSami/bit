@@ -1,5 +1,5 @@
-use crate::domain::objects::entry::{EntryMode, FileMode};
-use is_executable::IsExecutable;
+use crate::domain::objects::entry::EntryMetadata;
+use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
@@ -24,7 +24,7 @@ impl Workspace {
             .filter_map(|entry| {
                 let entry = entry.ok()?;
                 let path = entry.path();
-                
+
                 let file_name = path.file_name()?.to_string_lossy().to_string();
 
                 if path.is_file() && !IGNORED_PATHS.contains(&file_name.as_str()) {
@@ -44,18 +44,10 @@ impl Workspace {
         Ok(content)
     }
 
-    pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMode> {
+    pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMetadata> {
         let file_path = self.path.join(file_path);
+        let metadata = metadata(&file_path)?;
 
-        let metadata = std::fs::metadata(&file_path)?;
-
-        if metadata.is_dir() {
-            Ok(EntryMode::Directory)
-        } else {
-            match file_path.is_executable() {
-                true => Ok(EntryMode::File(FileMode::Executable)),
-                false => Ok(EntryMode::File(FileMode::Regular)),
-            }
-        }
+        Ok((&file_path, metadata).try_into()?)
     }
 }

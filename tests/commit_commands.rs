@@ -16,9 +16,9 @@ fn write_commit_object_successfully_for_flat_project() -> Result<(), Box<dyn std
     let mut cmd = Command::cargo_bin("bit")?;
     cmd.current_dir(dir.path()).arg("init");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Initialized git directory"));
+    cmd.assert().success().stdout(predicate::str::contains(
+        "Initialized empty Git repository in",
+    ));
 
     // create a few files (random number between 1 and 5) and write random content to them
     let file_count = (1..=5).fake::<usize>();
@@ -52,7 +52,7 @@ fn write_commit_object_successfully_for_flat_project() -> Result<(), Box<dyn std
         .assert()
         .success()
         .stdout(predicate::str::is_match(
-            r"^\[\(root-commit\) [0-9a-f]{40}\] .+$",
+            r"^\[.*\(root-commit\) [0-9a-f]{7}\] .+$",
         )?)
         .get_output()
         .stdout
@@ -66,7 +66,7 @@ fn write_commit_object_successfully_for_flat_project() -> Result<(), Box<dyn std
 
     assert_eq!(head_file_content.len(), 40);
     assert!(head_file_content.chars().all(|c| c.is_ascii_hexdigit()));
-    assert!(commit_excerpt.contains(&head_file_content));
+    assert!(commit_excerpt.contains(&head_file_content[..7]));
 
     let commit_oid = head_file_content;
 
@@ -117,9 +117,9 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
     let mut cmd = Command::cargo_bin("bit")?;
     cmd.current_dir(dir.path()).arg("init");
 
-    cmd.assert()
-        .success()
-        .stdout(predicate::str::contains("Initialized git directory"));
+    cmd.assert().success().stdout(predicate::str::starts_with(
+        "Initialized empty Git repository in",
+    ));
 
     // create a few files (random number between 1 and 5) and write random content to them
     let file_count = (1..=5).fake::<usize>();
@@ -144,7 +144,7 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
             let file_path = dir_path.child(file_name.clone());
             let file_content = Words(5..10).fake::<Vec<String>>().join(" ");
             file_path.write_str(&file_content.clone())?;
-            file_names.push(format!("{}/{}", dir_name, file_name));
+            file_names.push(format!("{dir_name}/{file_name}"));
         }
     }
 
@@ -155,7 +155,15 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
     let author_email = FreeEmail().fake::<String>();
     let message = Words(5..10).fake::<Vec<String>>().join("\n");
 
-    // commit the files using bit
+    // add all files to the index
+    // let mut sut = Command::new("git");
+    // sut.current_dir(dir.path())
+    //     .arg("add")
+    //     .arg(".")
+    //     .assert()
+    //     .success();
+
+    // commit the files
     let mut sut = Command::cargo_bin("bit")?;
     sut.current_dir(dir.path())
         .envs(vec![
@@ -171,7 +179,7 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
         .assert()
         .success()
         .stdout(predicate::str::is_match(
-            r"^\[\(root-commit\) [0-9a-f]{40}\] .+$",
+            r"\[.*\(root-commit\) [0-9a-f]{7}\] .+",
         )?)
         .get_output()
         .stdout
@@ -185,7 +193,7 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
 
     assert_eq!(head_file_content.len(), 40);
     assert!(head_file_content.chars().all(|c| c.is_ascii_hexdigit()));
-    assert!(commit_excerpt.contains(&head_file_content));
+    assert!(commit_excerpt.contains(&head_file_content[..7]));
 
     let commit_oid = head_file_content;
 

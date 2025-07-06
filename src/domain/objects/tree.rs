@@ -1,4 +1,4 @@
-use crate::domain::objects::entry::{Entry, EntryMode};
+use crate::domain::objects::entry::{Entry, EntryMetadata, EntryMode};
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
@@ -24,7 +24,7 @@ impl TreeEntry<'_> {
 
     fn mode(&self) -> &EntryMode {
         match self {
-            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.mode,
+            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.metadata.mode,
             TreeEntry::Directory(_) => &EntryMode::Directory,
         }
     }
@@ -87,10 +87,9 @@ impl<'tree> Tree<'tree> {
                 Some(TreeEntry::Directory(tree)) => tree,
                 _ => {
                     let tree = Self::default();
-                    self
-                        .entries
+                    self.entries
                         .insert(parent.to_string(), TreeEntry::Directory(tree.clone()));
-                    
+
                     match self.entries.get_mut(parent) {
                         Some(TreeEntry::Directory(tree)) => tree,
                         _ => unreachable!(),
@@ -122,6 +121,10 @@ impl<'tree> Tree<'tree> {
                     .try_into()?;
                 let id = parts.next().context("Invalid tree object: missing id")?;
                 let path = parts.next().context("Invalid tree object: missing path")?;
+                let metadata = EntryMetadata {
+                    mode,
+                    ..Default::default()
+                };
 
                 Ok((
                     path.to_string(),
@@ -129,15 +132,15 @@ impl<'tree> Tree<'tree> {
                         ObjectType::Blob => TreeEntry::File(Entry {
                             name: PathBuf::from(path),
                             oid: id.to_string(),
-                            mode,
+                            metadata,
                         }),
                         ObjectType::Tree => TreeEntry::LazyDirectory(Entry {
                             name: PathBuf::from(path),
                             oid: id.to_string(),
-                            mode,
+                            metadata,
                         }),
                         _ => unreachable!(),
-                    }
+                    },
                 ))
             })
             .collect::<anyhow::Result<BTreeMap<String, TreeEntry<'tree>>>>()?;
