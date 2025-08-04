@@ -1,4 +1,4 @@
-use crate::domain::objects::entry::EntryMetadata;
+use crate::domain::objects::index_entry::EntryMetadata;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -48,6 +48,6 @@ impl Workspace {
         let file_path = self.path.join(file_path);
         let metadata = metadata(&file_path)?;
 
-        Ok((&file_path, metadata).try_into()?)
+        (&file_path, metadata).try_into()
     }
 }

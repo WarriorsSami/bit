@@ -1,4 +1,3 @@
-use crate::domain::objects::entry::{Entry, EntryMetadata, EntryMode};
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
@@ -6,6 +5,8 @@ use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
+use crate::domain::objects::entry::Entry;
+use crate::domain::objects::entry_mode::EntryMode;
 
 #[derive(Debug, Clone)]
 enum TreeEntry<'e> {
@@ -24,7 +25,7 @@ impl TreeEntry<'_> {
 
     fn mode(&self) -> &EntryMode {
         match self {
-            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.metadata.mode,
+            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.mode,
             TreeEntry::Directory(_) => &EntryMode::Directory,
         }
     }
@@ -121,10 +122,6 @@ impl<'tree> Tree<'tree> {
                     .try_into()?;
                 let id = parts.next().context("Invalid tree object: missing id")?;
                 let path = parts.next().context("Invalid tree object: missing path")?;
-                let metadata = EntryMetadata {
-                    mode,
-                    ..Default::default()
-                };
 
                 Ok((
                     path.to_string(),
@@ -132,12 +129,12 @@ impl<'tree> Tree<'tree> {
                         ObjectType::Blob => TreeEntry::File(Entry {
                             name: PathBuf::from(path),
                             oid: id.to_string(),
-                            metadata,
+                            mode,
                         }),
                         ObjectType::Tree => TreeEntry::LazyDirectory(Entry {
                             name: PathBuf::from(path),
                             oid: id.to_string(),
-                            metadata,
+                            mode,
                         }),
                         _ => unreachable!(),
                     },

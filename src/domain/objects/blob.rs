@@ -1,19 +1,16 @@
-use crate::domain::objects::entry::FileMode;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_type::ObjectType;
 use bytes::Bytes;
+use derive_new::new;
+use crate::domain::objects::entry_mode::FileMode;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, new)]
 pub struct Blob<'blob> {
     content: &'blob str,
     stat: FileMode,
 }
 
 impl<'blob> Blob<'blob> {
-    pub fn new(content: &'blob str, stat: FileMode) -> Self {
-        Blob { content, stat }
-    }
-
     pub fn mode(&self) -> &FileMode {
         &self.stat
     }

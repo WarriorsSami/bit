@@ -1,6 +1,6 @@
 use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
-use crate::domain::objects::entry::Entry;
+use crate::domain::objects::index_entry::IndexEntry;
 use crate::domain::objects::object::Object;
 use std::path::Path;
 
@@ -18,7 +18,8 @@ impl Repository {
 
         let index = self.index();
         let mut index = index.lock().await;
-        index.add(Entry::new(path.into(), blob_id, stat))?;
+        index.add(IndexEntry::new(path.into(), blob_id, stat))?;
+
         index.write_updates()?;
 
         Ok(())

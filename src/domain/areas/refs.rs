@@ -1,16 +1,14 @@
 use file_guard::Lock;
 use std::io::Write;
 use std::path::Path;
+use derive_new::new;
 
+#[derive(Debug, new)]
 pub struct Refs {
     path: Box<Path>,
 }
 
-impl Refs {
-    pub fn new(path: Box<Path>) -> Self {
-        Refs { path }
-    }
-
+impl Refs { 
     pub fn update_head(&self, oid: &str) -> anyhow::Result<()> {
         // open the HEAD file as WRONLY and CREAT to write commit_id to it
         let mut head_file = std::fs::OpenOptions::new()

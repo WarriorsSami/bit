@@ -1,10 +1,10 @@
 use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::commit::{Author, Commit};
-use crate::domain::objects::entry::Entry;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::tree::Tree;
 use std::io::Write;
+use crate::domain::objects::entry::Entry;
 
 impl Repository {
     pub fn commit(&mut self, message: &str) -> anyhow::Result<()> {
@@ -20,10 +20,10 @@ impl Repository {
                 let blob_id = blob.object_id()?;
 
                 self.database().store(blob)?;
-
-                Ok(Entry::new(path, blob_id, stat))
+                
+                Ok(Entry::new(path, blob_id, stat.mode))
             })
-            .collect::<anyhow::Result<Vec<Entry>>>()?;
+            .collect::<anyhow::Result<Vec<_>>>()?;
 
         let tree = Tree::build(entries)?;
         let tree_id = tree.object_id()?;

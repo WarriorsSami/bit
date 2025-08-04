@@ -1,11 +1,11 @@
-use crate::domain::objects::entry::Entry;
+use crate::domain::objects::index_entry::IndexEntry;
 use std::collections::BTreeSet;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
 pub struct Index {
     path: Box<Path>,
-    entries: BTreeSet<Entry>,
+    entries: BTreeSet<IndexEntry>,
 }
 
 impl Index {
@@ -20,7 +20,7 @@ impl Index {
         &self.path
     }
 
-    pub fn add(&mut self, entry: Entry) -> anyhow::Result<()> {
+    pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
         self.entries.insert(entry);
         Ok(())
     }
