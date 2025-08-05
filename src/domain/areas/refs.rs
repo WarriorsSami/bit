@@ -1,15 +1,16 @@
+use crate::domain::objects::object_id::ObjectId;
+use derive_new::new;
 use file_guard::Lock;
 use std::io::Write;
 use std::path::Path;
-use derive_new::new;
 
 #[derive(Debug, new)]
 pub struct Refs {
     path: Box<Path>,
 }
 
-impl Refs { 
-    pub fn update_head(&self, oid: &str) -> anyhow::Result<()> {
+impl Refs {
+    pub fn update_head(&self, oid: ObjectId) -> anyhow::Result<()> {
         // open the HEAD file as WRONLY and CREAT to write commit_id to it
         let mut head_file = std::fs::OpenOptions::new()
             .write(true)
@@ -17,7 +18,7 @@ impl Refs {
             .truncate(true)
             .open(self.head_path())?;
         let mut lock = file_guard::lock(&mut head_file, Lock::Exclusive, 0, 1)?;
-        lock.write_all(oid.as_bytes())?;
+        lock.write_all(oid.as_ref().as_bytes())?;
 
         Ok(())
     }

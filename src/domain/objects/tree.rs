@@ -1,12 +1,13 @@
-use crate::domain::objects::object::Object;
+use crate::domain::objects::entry::Entry;
+use crate::domain::objects::entry_mode::EntryMode;
+use crate::domain::objects::object::{Object, Packable};
+use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
 use std::collections::BTreeMap;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
-use crate::domain::objects::entry::Entry;
-use crate::domain::objects::entry_mode::EntryMode;
 
 #[derive(Debug, Clone)]
 enum TreeEntry<'e> {
@@ -30,7 +31,7 @@ impl TreeEntry<'_> {
         }
     }
 
-    fn oid(&self) -> anyhow::Result<String> {
+    fn oid(&self) -> anyhow::Result<ObjectId> {
         match self {
             TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => Ok(entry.oid.clone()),
             TreeEntry::Directory(tree) => tree.object_id(),
@@ -120,7 +121,9 @@ impl<'tree> Tree<'tree> {
                     .next()
                     .context("Invalid tree object: missing type")?
                     .try_into()?;
-                let id = parts.next().context("Invalid tree object: missing id")?;
+                let oid = ObjectId::try_parse(String::from(
+                    parts.next().context("Invalid tree object: missing id")?,
+                ))?;
                 let path = parts.next().context("Invalid tree object: missing path")?;
 
                 Ok((
@@ -128,12 +131,12 @@ impl<'tree> Tree<'tree> {
                     match object_type {
                         ObjectType::Blob => TreeEntry::File(Entry {
                             name: PathBuf::from(path),
-                            oid: id.to_string(),
+                            oid,
                             mode,
                         }),
                         ObjectType::Tree => TreeEntry::LazyDirectory(Entry {
                             name: PathBuf::from(path),
-                            oid: id.to_string(),
+                            oid,
                             mode,
                         }),
                         _ => unreachable!(),
@@ -157,7 +160,7 @@ impl<'tree> TryFrom<&'tree str> for Tree<'tree> {
     }
 }
 
-impl Object for Tree<'_> {
+impl Packable for Tree<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let entries = self
             .entries
@@ -167,7 +170,7 @@ impl Object for Tree<'_> {
                     "{} {} {}\t{}",
                     tree_entry.mode().as_str(),
                     tree_entry.object_type().as_str(),
-                    tree_entry.oid()?.as_str(),
+                    tree_entry.oid()?.as_ref(),
                     name
                 ))
             })
@@ -183,7 +186,9 @@ impl Object for Tree<'_> {
 
         Ok(Bytes::from(object_content))
     }
+}
 
+impl Object for Tree<'_> {
     fn object_type(&self) -> ObjectType {
         ObjectType::Tree
     }
@@ -196,7 +201,7 @@ impl Object for Tree<'_> {
                     "{} {} {}\t{}",
                     tree_entry.mode().as_str(),
                     tree_entry.object_type().as_str(),
-                    tree_entry.oid().unwrap_or_default(),
+                    tree_entry.oid().unwrap_or_default().as_ref(),
                     name
                 )
             })

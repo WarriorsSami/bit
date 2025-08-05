@@ -99,7 +99,7 @@ async fn main() -> Result<()> {
                 }
             };
 
-            repository.init()?
+            repository.init().await?
         }
         Commands::CatFile { sha } => {
             let pwd = std::env::current_dir()?;

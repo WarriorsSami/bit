@@ -11,7 +11,7 @@ impl Repository {
         // hash
         let object_id = object.object_id()?;
 
-        write!(self.writer(), "{}", object_id)?;
+        write!(self.writer(), "{}", object_id.as_ref())?;
 
         // write (if write is true) as a compressed object file
         if !write {

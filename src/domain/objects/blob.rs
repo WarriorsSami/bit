@@ -1,8 +1,8 @@
-use crate::domain::objects::object::Object;
+use crate::domain::objects::entry_mode::FileMode;
+use crate::domain::objects::object::{Object, Packable};
 use crate::domain::objects::object_type::ObjectType;
 use bytes::Bytes;
 use derive_new::new;
-use crate::domain::objects::entry_mode::FileMode;
 
 #[derive(Debug, Clone, new)]
 pub struct Blob<'blob> {
@@ -34,7 +34,7 @@ impl<'blob> TryFrom<&'blob str> for Blob<'blob> {
     }
 }
 
-impl<'blob> Object for Blob<'_> {
+impl Packable for Blob<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let object_content = format!(
             "{} {}\0{}",
@@ -45,7 +45,9 @@ impl<'blob> Object for Blob<'_> {
 
         Ok(Bytes::from(object_content))
     }
+}
 
+impl<'blob> Object for Blob<'_> {
     fn object_type(&self) -> ObjectType {
         ObjectType::Blob
     }

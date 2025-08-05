@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 pub struct Repository {
     path: Box<Path>,
     writer: RefCell<Box<dyn std::io::Write>>,
-    index: Index,
+    index: Arc<Mutex<Index>>,
     database: Database,
     workspace: Workspace,
     refs: Refs,
@@ -32,7 +32,7 @@ impl Repository {
         Ok(Repository {
             path: path.into_boxed_path(),
             writer: RefCell::new(writer),
-            index,
+            index: Arc::new(Mutex::new(index)),
             database,
             workspace,
             refs,
@@ -48,7 +48,7 @@ impl Repository {
     }
 
     pub fn index(&self) -> Arc<Mutex<Index>> {
-        Arc::new(Mutex::new(self.index.clone()))
+        self.index.clone()
     }
 
     pub fn database(&self) -> &Database {

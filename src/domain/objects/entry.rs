@@ -1,11 +1,12 @@
-use std::path::{Path, PathBuf};
-use derive_new::new;
 use crate::domain::objects::entry_mode::EntryMode;
+use crate::domain::objects::object_id::ObjectId;
+use derive_new::new;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, new)]
 pub struct Entry {
     pub name: PathBuf,
-    pub oid: String,
+    pub oid: ObjectId,
     pub mode: EntryMode,
 }
 
@@ -35,26 +36,35 @@ impl Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::{fixture, rstest};
+    use sha1::Digest;
 
-    #[test]
-    fn test_entry_parent_dirs() {
-        let entry = Entry::new(PathBuf::from("a/b/c"), "".to_string(), EntryMode::Directory);
+    #[fixture]
+    fn oid() -> ObjectId {
+        let mut hasher = sha1::Sha1::new();
+        hasher.update("test data");
+        ObjectId::try_parse(format!("{:x}", hasher.finalize())).unwrap()
+    }
+
+    #[rstest]
+    fn test_entry_parent_dirs(oid: ObjectId) {
+        let entry = Entry::new(PathBuf::from("a/b/c"), oid, EntryMode::Directory);
 
         let dirs = entry.parent_dirs().unwrap();
         assert_eq!(dirs, vec![Path::new("a"), Path::new("a/b")]);
     }
 
-    #[test]
-    fn test_entry_parent_dirs_root() {
-        let entry = Entry::new(PathBuf::from("a"), "".to_string(), EntryMode::Directory);
+    #[rstest]
+    fn test_entry_parent_dirs_root(oid: ObjectId) {
+        let entry = Entry::new(PathBuf::from("a"), oid, EntryMode::Directory);
 
         let dirs = entry.parent_dirs().unwrap();
         assert_eq!(dirs, Vec::<&Path>::new());
     }
 
-    #[test]
-    fn test_entry_basename() {
-        let entry = Entry::new(PathBuf::from("a/b/c"), "".to_string(), EntryMode::Directory);
+    #[rstest]
+    fn test_entry_basename(oid: ObjectId) {
+        let entry = Entry::new(PathBuf::from("a/b/c"), oid, EntryMode::Directory);
 
         let basename = entry.basename().unwrap();
         assert_eq!(basename, "c");

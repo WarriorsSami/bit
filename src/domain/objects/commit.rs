@@ -1,4 +1,5 @@
-use crate::domain::objects::object::Object;
+use crate::domain::objects::object::{Object, Packable};
+use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
@@ -34,7 +35,7 @@ impl Author {
 #[derive(Debug, Clone)]
 pub struct Commit<'commit> {
     parent: Option<&'commit str>,
-    tree_oid: &'commit str,
+    tree_oid: ObjectId,
     author: Author,
     committer: Author,
     message: String,
@@ -43,7 +44,7 @@ pub struct Commit<'commit> {
 impl<'commit> Commit<'commit> {
     pub fn new(
         parent: Option<&'commit str>,
-        tree_oid: &'commit str,
+        tree_oid: ObjectId,
         author: Author,
         message: String,
     ) -> Self {
@@ -68,6 +69,8 @@ impl<'commit> Commit<'commit> {
             .split_whitespace()
             .nth(1)
             .context("Invalid commit object: missing tree")?;
+        let tree_oid = ObjectId::try_parse(tree_oid.to_string())
+            .context("Invalid commit object: invalid tree OID")?;
 
         let parent = lines
             .next()
@@ -116,7 +119,7 @@ impl<'commit> TryFrom<&'commit str> for Commit<'commit> {
     }
 }
 
-impl Object for Commit<'_> {
+impl Packable for Commit<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let mut object_content = vec![];
 
@@ -125,7 +128,7 @@ impl Object for Commit<'_> {
             self.object_type().as_str(),
             self.display().len()
         ));
-        object_content.push(format!("tree {}", self.tree_oid));
+        object_content.push(format!("tree {}", self.tree_oid.as_ref()));
         if let Some(parent) = &self.parent {
             object_content.push(format!("parent {}", parent));
         }
@@ -138,7 +141,9 @@ impl Object for Commit<'_> {
 
         Ok(Bytes::from(object_content))
     }
+}
 
+impl Object for Commit<'_> {
     fn object_type(&self) -> ObjectType {
         ObjectType::Commit
     }
@@ -146,7 +151,7 @@ impl Object for Commit<'_> {
     fn display(&self) -> String {
         let mut lines = vec![];
 
-        lines.push(format!("tree {}", self.tree_oid));
+        lines.push(format!("tree {}", self.tree_oid.as_ref()));
         if let Some(parent) = &self.parent {
             lines.push(format!("parent {}", parent));
         }

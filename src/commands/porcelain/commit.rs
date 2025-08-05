@@ -1,10 +1,10 @@
 use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::commit::{Author, Commit};
+use crate::domain::objects::entry::Entry;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::tree::Tree;
 use std::io::Write;
-use crate::domain::objects::entry::Entry;
 
 impl Repository {
     pub fn commit(&mut self, message: &str) -> anyhow::Result<()> {
@@ -20,7 +20,7 @@ impl Repository {
                 let blob_id = blob.object_id()?;
 
                 self.database().store(blob)?;
-                
+
                 Ok(Entry::new(path, blob_id, stat.mode))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -39,16 +39,16 @@ impl Repository {
         let author = Author::load_from_env()?;
         let message = message.trim().to_string();
 
-        let commit = Commit::new(parent.as_deref(), tree_id.as_str(), author, message);
+        let commit = Commit::new(parent.as_deref(), tree_id, author, message);
         let commit_id = commit.object_id()?;
         self.database().store(commit.clone())?;
-        self.refs().update_head(commit_id.as_str())?;
+        self.refs().update_head(commit_id.clone())?;
 
         write!(
             self.writer(),
             "[{}{}] {}",
             is_root,
-            &commit_id[..7],
+            &commit_id.as_ref()[..7],
             commit.short_message()
         )?;
 
