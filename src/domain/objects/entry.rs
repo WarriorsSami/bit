@@ -38,6 +38,7 @@ mod tests {
     use super::*;
     use rstest::{fixture, rstest};
     use sha1::Digest;
+    use pretty_assertions::assert_eq;
 
     #[fixture]
     fn oid() -> ObjectId {

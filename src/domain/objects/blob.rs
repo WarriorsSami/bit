@@ -1,3 +1,4 @@
+use std::io::Write;
 use crate::domain::objects::entry_mode::FileMode;
 use crate::domain::objects::object::{Object, Packable};
 use crate::domain::objects::object_type::ObjectType;
@@ -10,12 +11,17 @@ pub struct Blob<'blob> {
     stat: FileMode,
 }
 
-impl<'blob> Blob<'blob> {
+impl Blob<'_> {
     pub fn mode(&self) -> &FileMode {
         &self.stat
     }
+}
 
-    fn from(data: &'blob str) -> anyhow::Result<Self> {
+// TODO: Convert from Bytes instead of &str
+impl<'blob> TryFrom<&'blob str> for Blob<'blob> {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &'blob str) -> anyhow::Result<Self> {
         let parts = data.splitn(2, '\0').collect::<Vec<&str>>();
 
         if parts.len() != 2 {
@@ -26,28 +32,21 @@ impl<'blob> Blob<'blob> {
     }
 }
 
-impl<'blob> TryFrom<&'blob str> for Blob<'blob> {
-    type Error = anyhow::Error;
-
-    fn try_from(data: &'blob str) -> anyhow::Result<Self> {
-        Blob::from(data)
-    }
-}
-
 impl Packable for Blob<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
-        let object_content = format!(
-            "{} {}\0{}",
-            self.object_type().as_str(),
-            self.content.len(),
-            self.content
-        );
+        let mut content_bytes = Vec::new();
+        content_bytes.write_all(self.content.as_bytes())?;
 
-        Ok(Bytes::from(object_content))
+        let mut blob_bytes = Vec::new();
+        let header = format!("{} {}\0", self.object_type().as_str(), content_bytes.len());
+        blob_bytes.write_all(header.as_bytes())?;
+        blob_bytes.write_all(&content_bytes)?;
+        
+        Ok(Bytes::from(blob_bytes))
     }
 }
 
-impl<'blob> Object for Blob<'_> {
+impl Object for Blob<'_> {
     fn object_type(&self) -> ObjectType {
         ObjectType::Blob
     }

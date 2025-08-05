@@ -6,6 +6,7 @@ use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
 use std::collections::BTreeMap;
+use std::io::Write;
 use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
@@ -103,8 +104,13 @@ impl<'tree> Tree<'tree> {
 
         Ok(())
     }
+}
 
-    fn from(data: &'tree str) -> anyhow::Result<Self> {
+// TODO: Convert from Bytes instead of &str
+impl<'tree> TryFrom<&'tree str> for Tree<'tree> {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &'tree str) -> anyhow::Result<Self> {
         let entries = data
             .split("\0")
             .nth(1)
@@ -152,39 +158,33 @@ impl<'tree> Tree<'tree> {
     }
 }
 
-impl<'tree> TryFrom<&'tree str> for Tree<'tree> {
-    type Error = anyhow::Error;
-
-    fn try_from(data: &'tree str) -> anyhow::Result<Self> {
-        Tree::from(data)
-    }
-}
-
 impl Packable for Tree<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
-        let entries = self
+        let content_bytes: Bytes = self
             .entries
             .iter()
             .map(|(name, tree_entry)| {
-                Ok(format!(
-                    "{} {} {}\t{}",
-                    tree_entry.mode().as_str(),
-                    tree_entry.object_type().as_str(),
-                    tree_entry.oid()?.as_ref(),
-                    name
-                ))
+                let mut entry_bytes = Vec::new();
+                let header = format!("{} {}", tree_entry.mode().as_str(), name);
+                entry_bytes.write_all(header.as_bytes())?;
+                entry_bytes.push(0);
+                tree_entry.oid()?.write_h40_to(&mut entry_bytes)?;
+
+                Ok(Bytes::from(entry_bytes))
             })
-            .collect::<anyhow::Result<Vec<String>>>()?
-            .join("\n");
+            .filter_map(|result: anyhow::Result<Bytes>| result.ok())
+            .fold(Vec::new(), |mut acc, entry_bytes| {
+                acc.extend(entry_bytes);
+                acc
+            })
+            .into();
 
-        let object_content = format!(
-            "{} {}\0{}",
-            self.object_type().as_str(),
-            entries.len(),
-            entries
-        );
+        let mut tree_bytes = Vec::new();
+        let header = format!("{} {}\0", self.object_type().as_str(), content_bytes.len());
+        tree_bytes.write_all(header.as_bytes())?;
+        tree_bytes.write_all(&content_bytes)?;
 
-        Ok(Bytes::from(object_content))
+        Ok(Bytes::from(tree_bytes))
     }
 }
 

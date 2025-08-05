@@ -6,13 +6,14 @@ use crate::domain::objects::object_type::ObjectType;
 use crate::domain::objects::tree::Tree;
 
 impl Repository {
+    // TODO: Split the String-encoded header from the Bytes-encoded content
     pub fn cat_file(&mut self, object_id: &str) -> anyhow::Result<()> {
-        // read object file
+        // read the object file
         let object_data = self.database().load(object_id)?;
         let object_data = String::from_utf8(object_data.to_vec())?;
         let object_data = object_data.trim();
 
-        // deserialize based on object type extracted from header
+        // deserialize based on the object type extracted from the header
         let object_type: ObjectType = object_data
             .split_whitespace()
             .next()

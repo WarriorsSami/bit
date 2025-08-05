@@ -6,6 +6,7 @@ use fake::faker::internet::en::FreeEmail;
 use fake::faker::lorem::en::{Word, Words};
 use fake::faker::name::en::Name;
 use predicates::prelude::predicate;
+use pretty_assertions::assert_eq;
 
 mod common;
 

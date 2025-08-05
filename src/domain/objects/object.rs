@@ -20,7 +20,7 @@ pub trait Object: Packable {
         hasher.update(&content);
 
         let oid = hasher.finalize();
-        Ok(ObjectId::try_parse(format!("{oid:x}"))?)
+        ObjectId::try_parse(format!("{oid:x}"))
     }
 
     fn object_path(&self) -> Result<PathBuf> {

@@ -1,3 +1,4 @@
+use std::io::Write;
 use crate::domain::objects::object::{Object, Packable};
 use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::object_type::ObjectType;
@@ -57,7 +58,16 @@ impl<'commit> Commit<'commit> {
         }
     }
 
-    fn from(data: &'commit str) -> anyhow::Result<Self> {
+    pub fn short_message(&self) -> String {
+        self.message.lines().next().unwrap_or("").to_string()
+    }
+}
+
+// TODO: Convert from Bytes instead of &str
+impl<'commit> TryFrom<&'commit str> for Commit<'commit> {
+    type Error = anyhow::Error;
+
+    fn try_from(data: &'commit str) -> anyhow::Result<Self> {
         let mut lines = data.lines();
         lines
             .next()
@@ -105,18 +115,6 @@ impl<'commit> Commit<'commit> {
 
         Ok(Self::new(parent, tree_oid, author, message))
     }
-
-    pub fn short_message(&self) -> String {
-        self.message.lines().next().unwrap_or("").to_string()
-    }
-}
-
-impl<'commit> TryFrom<&'commit str> for Commit<'commit> {
-    type Error = anyhow::Error;
-
-    fn try_from(data: &'commit str) -> anyhow::Result<Self> {
-        Commit::from(data)
-    }
 }
 
 impl Packable for Commit<'_> {
@@ -130,7 +128,7 @@ impl Packable for Commit<'_> {
         ));
         object_content.push(format!("tree {}", self.tree_oid.as_ref()));
         if let Some(parent) = &self.parent {
-            object_content.push(format!("parent {}", parent));
+            object_content.push(format!("parent {parent}"));
         }
         object_content.push(format!("author {}", self.author.display()));
         object_content.push(format!("committer {}", self.committer.display()));
@@ -139,7 +137,15 @@ impl Packable for Commit<'_> {
 
         let object_content = object_content.join("\n");
 
-        Ok(Bytes::from(object_content))
+        let mut content_bytes = Vec::new();
+        content_bytes.write_all(object_content.as_bytes())?;
+        
+        let mut commit_bytes = Vec::new();
+        let header = format!("{} {}\0", self.object_type().as_str(), content_bytes.len());
+        commit_bytes.write_all(header.as_bytes())?;
+        commit_bytes.write_all(&content_bytes)?;
+        
+        Ok(Bytes::from(commit_bytes))
     }
 }
 
@@ -153,7 +159,7 @@ impl Object for Commit<'_> {
 
         lines.push(format!("tree {}", self.tree_oid.as_ref()));
         if let Some(parent) = &self.parent {
-            lines.push(format!("parent {}", parent));
+            lines.push(format!("parent {parent}"));
         }
         lines.push(format!("author {}", self.author.display()));
         lines.push(format!("committer {}", self.committer.display()));
