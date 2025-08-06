@@ -14,14 +14,34 @@ use std::path::PathBuf;
 const MAX_PATH_SIZE: usize = 4095;
 const ENTRY_BLOCK: usize = 8;
 
-#[derive(Debug, Clone, Eq, Ord, Default, PartialEq, PartialOrd, new)]
+#[derive(Debug, Clone, Default, new)]
 pub struct IndexEntry {
     pub name: PathBuf,
     pub oid: ObjectId,
     pub metadata: EntryMetadata,
 }
 
-#[derive(Debug, Clone, Eq, Ord, Default, PartialEq, PartialOrd)]
+impl PartialEq for IndexEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for IndexEntry {}
+
+impl PartialOrd for IndexEntry {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for IndexEntry {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.name.cmp(&other.name)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
 pub struct EntryMetadata {
     pub ctime: i64,
     pub ctime_nsec: i64,
