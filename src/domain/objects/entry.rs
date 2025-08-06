@@ -36,9 +36,9 @@ impl Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pretty_assertions::assert_eq;
     use rstest::{fixture, rstest};
     use sha1::Digest;
-    use pretty_assertions::assert_eq;
 
     #[fixture]
     fn oid() -> ObjectId {

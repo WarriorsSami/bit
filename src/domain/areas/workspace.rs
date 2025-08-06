@@ -18,22 +18,36 @@ impl Workspace {
         &self.path
     }
 
-    pub fn list_files(&self) -> Vec<PathBuf> {
-        WalkDir::new(&self.path)
-            .into_iter()
-            .filter_map(|entry| {
-                let entry = entry.ok()?;
-                let path = entry.path();
+    pub fn list_files(&self, file_path: Option<PathBuf>) -> Vec<PathBuf> {
+        let file_path = file_path.unwrap_or_else(|| self.path.clone().into());
 
-                let file_name = path.file_name()?.to_string_lossy().to_string();
+        if file_path.is_dir() {
+            WalkDir::new(&file_path)
+                .into_iter()
+                .filter_map(|entry| {
+                    let entry = entry.ok()?;
+                    let path = entry.path();
 
-                if path.is_file() && !IGNORED_PATHS.contains(&file_name.as_str()) {
-                    Some(path.strip_prefix(&self.path).ok()?.to_path_buf())
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>()
+                    // Check if any component of the path is in IGNORED_PATHS
+                    let is_ignored = path.components().any(|component| {
+                        if let std::path::Component::Normal(name) = component {
+                            let name_str = name.to_string_lossy();
+                            IGNORED_PATHS.contains(&name_str.as_ref())
+                        } else {
+                            false
+                        }
+                    });
+
+                    if path.is_file() && !is_ignored {
+                        Some(path.strip_prefix(&file_path).ok()?.to_path_buf())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        } else {
+            vec![file_path.file_name().map(PathBuf::from).unwrap_or_default()]
+        }
     }
 
     pub fn read_file(&self, file_path: &Path) -> anyhow::Result<String> {
@@ -45,9 +59,8 @@ impl Workspace {
     }
 
     pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMetadata> {
-        let file_path = self.path.join(file_path);
-        let metadata = metadata(&file_path)?;
+        let metadata = metadata(self.path.join(file_path))?;
 
-        (&file_path, metadata).try_into()
+        (file_path, metadata).try_into()
     }
 }

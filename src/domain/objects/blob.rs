@@ -1,9 +1,9 @@
-use std::io::Write;
 use crate::domain::objects::entry_mode::FileMode;
 use crate::domain::objects::object::{Object, Packable};
 use crate::domain::objects::object_type::ObjectType;
 use bytes::Bytes;
 use derive_new::new;
+use std::io::Write;
 
 #[derive(Debug, Clone, new)]
 pub struct Blob<'blob> {
@@ -41,7 +41,7 @@ impl Packable for Blob<'_> {
         let header = format!("{} {}\0", self.object_type().as_str(), content_bytes.len());
         blob_bytes.write_all(header.as_bytes())?;
         blob_bytes.write_all(&content_bytes)?;
-        
+
         Ok(Bytes::from(blob_bytes))
     }
 }

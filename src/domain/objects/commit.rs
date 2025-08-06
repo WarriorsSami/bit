@@ -1,9 +1,9 @@
-use std::io::Write;
 use crate::domain::objects::object::{Object, Packable};
 use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
+use std::io::Write;
 
 #[derive(Debug, Clone)]
 pub struct Author {
@@ -139,12 +139,12 @@ impl Packable for Commit<'_> {
 
         let mut content_bytes = Vec::new();
         content_bytes.write_all(object_content.as_bytes())?;
-        
+
         let mut commit_bytes = Vec::new();
         let header = format!("{} {}\0", self.object_type().as_str(), content_bytes.len());
         commit_bytes.write_all(header.as_bytes())?;
         commit_bytes.write_all(&content_bytes)?;
-        
+
         Ok(Bytes::from(commit_bytes))
     }
 }

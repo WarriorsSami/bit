@@ -9,7 +9,7 @@ use std::cmp::min;
 use std::fs::Metadata;
 use std::io::Write;
 use std::os::unix::prelude::MetadataExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MAX_PATH_SIZE: usize = 4095;
 const ENTRY_BLOCK: usize = 8;
@@ -105,10 +105,10 @@ impl Packable for IndexEntry {
     }
 }
 
-impl TryFrom<(&PathBuf, Metadata)> for EntryMetadata {
+impl TryFrom<(&Path, Metadata)> for EntryMetadata {
     type Error = anyhow::Error;
 
-    fn try_from((file_path, metadata): (&PathBuf, Metadata)) -> Result<Self, Self::Error> {
+    fn try_from((file_path, metadata): (&Path, Metadata)) -> Result<Self, Self::Error> {
         let mode = if metadata.is_dir() {
             EntryMode::Directory
         } else {
@@ -118,9 +118,8 @@ impl TryFrom<(&PathBuf, Metadata)> for EntryMetadata {
             }
         };
         let file_path = file_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| anyhow::anyhow!("Invalid file name"))?;
+            .to_str()
+            .ok_or_else(|| anyhow::anyhow!("Invalid file path"))?;
 
         Ok(Self {
             ctime: metadata.ctime(),

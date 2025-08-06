@@ -10,17 +10,19 @@ impl Repository {
         let mut index = index.lock().await;
 
         for file_path in paths {
-            let path = Path::new(&file_path);
+            // Convert the file path to an absolute path using canonicalize
+            let absolute_path = Path::new(&file_path).canonicalize()?;
 
-            let data = self.workspace().read_file(path)?;
-            let stat = self.workspace().stat_file(path)?;
+            for path in self.workspace().list_files(Some(absolute_path)) {
+                let data = self.workspace().read_file(&path)?;
+                let stat = self.workspace().stat_file(&path)?;
 
-            let blob = Blob::new(data.as_str(), stat.clone().mode.try_into()?);
-            let blob_id = blob.object_id()?;
+                let blob = Blob::new(data.as_str(), stat.clone().mode.try_into()?);
+                let blob_id = blob.object_id()?;
 
-            self.database().store(blob)?;
-
-            index.add(IndexEntry::new(path.into(), blob_id, stat))?;
+                self.database().store(blob)?;
+                index.add(IndexEntry::new(path, blob_id, stat))?;
+            }
         }
 
         index.write_updates()?;

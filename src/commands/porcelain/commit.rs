@@ -10,7 +10,7 @@ impl Repository {
     pub fn commit(&mut self, message: &str) -> anyhow::Result<()> {
         let entries = self
             .workspace()
-            .list_files()
+            .list_files(None)
             .into_iter()
             .map(|path| {
                 let data = self.workspace().read_file(&path)?;
