@@ -1,7 +1,7 @@
 use crate::domain::objects::entry_mode::{EntryMode, FileMode};
-use crate::domain::objects::object::Packable;
+use crate::domain::objects::object::{Packable, Unpackable};
 use crate::domain::objects::object_id::ObjectId;
-use byteorder::WriteBytesExt;
+use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
 use derive_new::new;
 use is_executable::IsExecutable;
@@ -12,7 +12,8 @@ use std::os::unix::prelude::MetadataExt;
 use std::path::{Path, PathBuf};
 
 const MAX_PATH_SIZE: usize = 4095;
-const ENTRY_BLOCK: usize = 8;
+pub const ENTRY_BLOCK: usize = 8;
+pub const ENTRY_MIN_SIZE: usize = 64; // Minimum size of an index entry in bytes
 
 #[derive(Debug, Clone, Default, new)]
 pub struct IndexEntry {
@@ -102,6 +103,57 @@ impl Packable for IndexEntry {
         }
 
         Ok(Bytes::from(entry_bytes))
+    }
+}
+
+impl Unpackable for IndexEntry {
+    fn deserialize(bytes: Bytes) -> anyhow::Result<Self> {
+        if bytes.len() < ENTRY_MIN_SIZE {
+            return Err(anyhow::anyhow!("Invalid index entry size"));
+        }
+
+        let ctime = byteorder::NetworkEndian::read_u32(&bytes[0..4]) as i64;
+        let ctime_nsec = byteorder::NetworkEndian::read_u32(&bytes[4..8]) as i64;
+        let mtime = byteorder::NetworkEndian::read_u32(&bytes[8..12]) as i64;
+        let mtime_nsec = byteorder::NetworkEndian::read_u32(&bytes[12..16]) as i64;
+        let dev = byteorder::NetworkEndian::read_u32(&bytes[16..20]) as u64;
+        let ino = byteorder::NetworkEndian::read_u32(&bytes[20..24]) as u64;
+        let mode: EntryMode = byteorder::NetworkEndian::read_u32(&bytes[24..28]).into();
+        let uid = byteorder::NetworkEndian::read_u32(&bytes[28..32]);
+        let gid = byteorder::NetworkEndian::read_u32(&bytes[32..36]);
+        let size = byteorder::NetworkEndian::read_u32(&bytes[36..40]) as u64;
+        let mut oid_bytes = std::io::Cursor::new(&bytes[40..60]);
+        let oid = ObjectId::read_h40_from(&mut oid_bytes)?;
+        let flags = byteorder::NetworkEndian::read_u16(&bytes[60..62]) as u32;
+
+        // Extract the entry name, which is null-terminated
+        let name_end = bytes
+            .iter()
+            .position(|&b| b == 0)
+            .ok_or_else(|| anyhow::anyhow!("Missing null terminator in entry name"))?;
+        let name_bytes = &bytes[62..name_end];
+        let name = PathBuf::from(
+            std::str::from_utf8(name_bytes)
+                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in entry name"))?,
+        );
+
+        Ok(IndexEntry {
+            name,
+            oid,
+            metadata: EntryMetadata {
+                ctime,
+                ctime_nsec,
+                mtime,
+                mtime_nsec,
+                dev,
+                ino,
+                mode,
+                uid,
+                gid,
+                size,
+                flags,
+            },
+        })
     }
 }
 

@@ -2,6 +2,7 @@ use crate::domain::objects::object_id::ObjectId;
 use derive_new::new;
 use file_guard::Lock;
 use std::io::Write;
+use std::ops::DerefMut;
 use std::path::Path;
 
 #[derive(Debug, new)]
@@ -18,7 +19,7 @@ impl Refs {
             .truncate(true)
             .open(self.head_path())?;
         let mut lock = file_guard::lock(&mut head_file, Lock::Exclusive, 0, 1)?;
-        lock.write_all(oid.as_ref().as_bytes())?;
+        lock.deref_mut().write_all(oid.as_ref().as_bytes())?;
 
         Ok(())
     }

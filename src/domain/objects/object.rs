@@ -9,6 +9,12 @@ pub trait Packable {
     fn serialize(&self) -> Result<Bytes>;
 }
 
+pub trait Unpackable {
+    fn deserialize(bytes: Bytes) -> Result<Self>
+    where
+        Self: Sized;
+}
+
 pub trait Object: Packable {
     fn object_type(&self) -> ObjectType;
 

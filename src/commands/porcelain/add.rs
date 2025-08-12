@@ -10,7 +10,7 @@ impl Repository {
         let mut index = index.lock().await;
 
         for file_path in paths {
-            // Convert the file path to an absolute path using canonicalize
+            // Convert the file path to an absolute path using `canonicalize`
             let absolute_path = Path::new(&file_path).canonicalize()?;
 
             for path in self.workspace().list_files(Some(absolute_path)) {

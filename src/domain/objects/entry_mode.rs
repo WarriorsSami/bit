@@ -30,6 +30,27 @@ impl EntryMode {
     }
 }
 
+impl From<u32> for EntryMode {
+    fn from(mode: u32) -> Self {
+        match mode {
+            0o100644 => EntryMode::File(FileMode::Regular),
+            0o100755 => EntryMode::File(FileMode::Executable),
+            0o40000 => EntryMode::Directory,
+            _ => panic!("Invalid entry mode"),
+        }
+    }
+}
+
+impl From<EntryMode> for u32 {
+    fn from(mode: EntryMode) -> Self {
+        match mode {
+            EntryMode::File(FileMode::Regular) => 0o100644,
+            EntryMode::File(FileMode::Executable) => 0o100755,
+            EntryMode::Directory => 0o40000,
+        }
+    }
+}
+
 impl From<FileMode> for EntryMode {
     fn from(mode: FileMode) -> Self {
         EntryMode::File(mode)

@@ -14,7 +14,7 @@ impl ObjectId {
         Ok(Self(id.to_string()))
     }
 
-    pub fn write_h40_to<W: std::io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
+    pub fn write_h40_to<W: io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
         let hex40 = self.as_ref();
 
         // Process a nibble at a time
@@ -25,6 +25,18 @@ impl ObjectId {
         }
 
         Ok(())
+    }
+
+    pub fn read_h40_from<R: io::Read + ?Sized>(reader: &mut R) -> anyhow::Result<Self> {
+        let mut hex40 = String::with_capacity(40);
+        let mut buffer = [0; 2]; // Read two bytes at a time
+
+        for _ in 0..20 {
+            reader.read_exact(&mut buffer)?;
+            hex40.push_str(&format!("{:02x}", u16::from_be_bytes(buffer)));
+        }
+
+        Self::try_parse(hex40)
     }
 }
 

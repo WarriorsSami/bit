@@ -43,7 +43,7 @@ impl Repository {
         &self.path
     }
 
-    pub fn writer(&self) -> RefMut<Box<dyn std::io::Write>> {
+    pub fn writer(&'_ self) -> RefMut<'_, Box<dyn std::io::Write>> {
         self.writer.borrow_mut()
     }
 
