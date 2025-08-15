@@ -11,6 +11,80 @@ pub fn redirect_temp_dir() {
     }
 }
 
+// Helper function to create hexdump representation
+pub fn to_hexdump(data: &[u8]) -> String {
+    let mut result = String::new();
+    for (i, chunk) in data.chunks(16).enumerate() {
+        result.push_str(&format!("{:08x}: ", i * 16));
+
+        // Hex representation
+        for (j, byte) in chunk.iter().enumerate() {
+            if j == 8 {
+                result.push(' ');
+            }
+            result.push_str(&format!("{:02x} ", byte));
+        }
+
+        // Pad if less than 16 bytes
+        for j in chunk.len()..16 {
+            if j == 8 {
+                result.push(' ');
+            }
+            result.push_str("   ");
+        }
+
+        result.push_str(" |");
+
+        // ASCII representation
+        for byte in chunk {
+            if byte.is_ascii_graphic() {
+                result.push(*byte as char);
+            } else {
+                result.push('.');
+            }
+        }
+
+        result.push_str("|\n");
+    }
+    result
+}
+
+// Macro to compare index contents with hexdump output on failure
+#[macro_export]
+macro_rules! assert_index_eq {
+    ($bit_content:expr, $git_content:expr) => {
+        if $bit_content != $git_content {
+            let bit_hexdump = common::to_hexdump($bit_content);
+            let git_hexdump = common::to_hexdump($git_content);
+
+            // Use pretty_assertions for better diff visualization
+            pretty_assertions::assert_eq!(
+                bit_hexdump,
+                git_hexdump,
+                "\n=== INDEX CONTENTS DIFFER ===\nBit index ({} bytes) vs Git index ({} bytes)",
+                $bit_content.len(),
+                $git_content.len()
+            );
+        }
+    };
+    ($bit_content:expr, $git_content:expr, $($arg:tt)*) => {
+        if $bit_content != $git_content {
+            let bit_hexdump = common::to_hexdump($bit_content);
+            let git_hexdump = common::to_hexdump($git_content);
+
+            // Use pretty_assertions for better diff visualization with custom message
+            pretty_assertions::assert_eq!(
+                bit_hexdump,
+                git_hexdump,
+                "\n=== INDEX CONTENTS DIFFER ===\n{}\nBit index ({} bytes) vs Git index ({} bytes)",
+                format_args!($($arg)*),
+                $bit_content.len(),
+                $git_content.len()
+            );
+        }
+    };
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum TreeNode {
     File {
@@ -96,10 +170,10 @@ impl TreeNode {
                     TreeNode::Directory { name, .. } => {
                         let parent = name.split('/').next().unwrap();
                         let parent_idx = acc.iter().position(|n| n.name() == parent);
-                        if let Some(idx) = parent_idx {
-                            if let TreeNode::Directory { children, .. } = &mut acc[idx] {
-                                children.push(node);
-                            }
+                        if let Some(idx) = parent_idx
+                            && let TreeNode::Directory { children, .. } = &mut acc[idx]
+                        {
+                            children.push(node);
                         }
                     }
                 }
@@ -149,10 +223,10 @@ impl TreeNode {
                     TreeNode::Directory { name, .. } => {
                         let parent = name.split('/').next().unwrap();
                         let parent_idx = acc.iter().position(|n| n.name() == parent);
-                        if let Some(idx) = parent_idx {
-                            if let TreeNode::Directory { children, .. } = &mut acc[idx] {
-                                children.push(node);
-                            }
+                        if let Some(idx) = parent_idx
+                            && let TreeNode::Directory { children, .. } = &mut acc[idx]
+                        {
+                            children.push(node);
                         }
                     }
                 }

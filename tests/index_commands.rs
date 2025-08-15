@@ -4,7 +4,6 @@ use assert_fs::prelude::PathCreateDir;
 use fake::Fake;
 use fake::faker::lorem::en::{Word, Words};
 use predicates::prelude::predicate;
-use pretty_assertions::assert_eq;
 
 mod common;
 
@@ -55,7 +54,7 @@ fn add_single_file_to_index_successfully() -> Result<(), Box<dyn std::error::Err
     // Compare the index content with the git index content
     let git_index_path = dir.child(".git/index");
     let git_index_content = std::fs::read(git_index_path.path())?;
-    assert_eq!(bit_index_content, git_index_content);
+    assert_index_eq!(&bit_index_content, &git_index_content);
 
     Ok(())
 }
@@ -112,7 +111,7 @@ fn add_multiple_files_to_index_successfully() -> Result<(), Box<dyn std::error::
     // Compare the index content with the git index content
     let git_index_path = dir.child(".git/index");
     let git_index_content = std::fs::read(git_index_path.path())?;
-    assert_eq!(bit_index_content, git_index_content);
+    assert_index_eq!(&bit_index_content, &git_index_content);
 
     Ok(())
 }
@@ -177,7 +176,7 @@ fn add_files_in_nested_directories_to_index_successfully() -> Result<(), Box<dyn
     // Compare the index content with the git index content
     let git_index_path = dir.child(".git/index");
     let git_index_content = std::fs::read(git_index_path.path())?;
-    assert_eq!(bit_index_content, git_index_content);
+    assert_index_eq!(&bit_index_content, &git_index_content);
 
     Ok(())
 }
@@ -255,7 +254,7 @@ fn add_multiple_files_to_index_incrementally_successfully() -> Result<(), Box<dy
     // Compare the index content with the git index content
     let git_index_path = dir.child(".git/index");
     let git_index_content = std::fs::read(git_index_path.path())?;
-    assert_eq!(bit_index_content, git_index_content);
+    assert_index_eq!(&bit_index_content, &git_index_content);
 
     Ok(())
 }
