@@ -1,6 +1,5 @@
 pub mod blob;
 pub mod commit;
-pub mod entry;
 pub mod entry_mode;
 pub mod index_entry;
 pub mod object;

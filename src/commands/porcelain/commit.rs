@@ -1,31 +1,18 @@
 use crate::domain::areas::repository::Repository;
-use crate::domain::objects::blob::Blob;
 use crate::domain::objects::commit::{Author, Commit};
-use crate::domain::objects::entry::Entry;
 use crate::domain::objects::object::Object;
 use crate::domain::objects::tree::Tree;
 use std::io::Write;
 
 impl Repository {
-    pub fn commit(&mut self, message: &str) -> anyhow::Result<()> {
-        let entries = self
-            .workspace()
-            .list_files(None)
-            .into_iter()
-            .map(|path| {
-                let data = self.workspace().read_file(&path)?;
-                let stat = self.workspace().stat_file(&path)?;
+    pub async fn commit(&mut self, message: &str) -> anyhow::Result<()> {
+        let index = self.index();
+        let mut index = index.lock().await;
 
-                let blob = Blob::new(data.as_str(), stat.clone().mode.try_into()?);
-                let blob_id = blob.object_id()?;
+        // Load the index file from the disk
+        index.rehydrate()?;
 
-                self.database().store(blob)?;
-
-                Ok(Entry::new(path, blob_id, stat.mode))
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
-
-        let tree = Tree::build(entries)?;
+        let tree = Tree::build(index.entries())?;
         let tree_id = tree.object_id()?;
         let store_tree = &|tree: &Tree| self.database().store(tree.clone());
         tree.traverse(store_tree)?;

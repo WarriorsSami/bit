@@ -1,5 +1,5 @@
-use crate::domain::objects::entry::Entry;
 use crate::domain::objects::entry_mode::EntryMode;
+use crate::domain::objects::index_entry::{EntryMetadata, IndexEntry};
 use crate::domain::objects::object::{Object, Packable};
 use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::object_type::ObjectType;
@@ -12,9 +12,9 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 enum TreeEntry<'e> {
-    File(Entry),
+    File(IndexEntry),
     Directory(Tree<'e>),
-    LazyDirectory(Entry),
+    LazyDirectory(IndexEntry),
 }
 
 impl TreeEntry<'_> {
@@ -27,7 +27,7 @@ impl TreeEntry<'_> {
 
     fn mode(&self) -> &EntryMode {
         match self {
-            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.mode,
+            TreeEntry::File(entry) | TreeEntry::LazyDirectory(entry) => &entry.metadata.mode,
             TreeEntry::Directory(_) => &EntryMode::Directory,
         }
     }
@@ -47,15 +47,15 @@ pub struct Tree<'tree> {
 }
 
 impl<'tree> Tree<'tree> {
-    pub fn build(entries: Vec<Entry>) -> anyhow::Result<Self> {
-        let mut entries = entries;
+    pub fn build(entries: impl Iterator<Item = &'tree IndexEntry> + 'tree) -> anyhow::Result<Self> {
+        let mut entries = entries.collect::<Vec<_>>();
         entries.sort_by(|a, b| a.name.cmp(&b.name));
 
         let mut root = Self::default();
 
         for entry in entries {
             let parents = entry.parent_dirs()?;
-            root.add_entry(parents, &entry)?;
+            root.add_entry(parents, entry)?;
         }
 
         Ok(root)
@@ -75,7 +75,7 @@ impl<'tree> Tree<'tree> {
         Ok(())
     }
 
-    fn add_entry(&mut self, parents: Vec<&Path>, entry: &Entry) -> anyhow::Result<()> {
+    fn add_entry(&mut self, parents: Vec<&Path>, entry: &IndexEntry) -> anyhow::Result<()> {
         if parents.is_empty() {
             self.entries.insert(
                 entry.basename()?.to_string(),
@@ -131,19 +131,23 @@ impl<'tree> TryFrom<&'tree str> for Tree<'tree> {
                     parts.next().context("Invalid tree object: missing id")?,
                 ))?;
                 let path = parts.next().context("Invalid tree object: missing path")?;
+                let metadata = EntryMetadata {
+                    mode,
+                    ..Default::default()
+                };
 
                 Ok((
                     path.to_string(),
                     match object_type {
-                        ObjectType::Blob => TreeEntry::File(Entry {
+                        ObjectType::Blob => TreeEntry::File(IndexEntry {
                             name: PathBuf::from(path),
                             oid,
-                            mode,
+                            metadata,
                         }),
-                        ObjectType::Tree => TreeEntry::LazyDirectory(Entry {
+                        ObjectType::Tree => TreeEntry::LazyDirectory(IndexEntry {
                             name: PathBuf::from(path),
                             oid,
-                            mode,
+                            metadata,
                         }),
                         _ => unreachable!(),
                     },
@@ -165,7 +169,7 @@ impl Packable for Tree<'_> {
             .iter()
             .map(|(name, tree_entry)| {
                 let mut entry_bytes = Vec::new();
-                let header = format!("{} {}", tree_entry.mode().as_str(), name);
+                let header = format!("{} {}", tree_entry.mode().as_u32(), name);
                 entry_bytes.write_all(header.as_bytes())?;
                 entry_bytes.push(0);
                 tree_entry.oid()?.write_h40_to(&mut entry_bytes)?;

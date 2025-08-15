@@ -22,6 +22,29 @@ pub struct IndexEntry {
     pub metadata: EntryMetadata,
 }
 
+impl IndexEntry {
+    pub fn basename(&self) -> anyhow::Result<&str> {
+        self.name
+            .file_name()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Invalid file name"))
+    }
+
+    pub fn parent_dirs(&self) -> anyhow::Result<Vec<&Path>> {
+        let mut dirs = Vec::new();
+        let mut parent = self.name.parent();
+
+        while let Some(new_parent) = parent {
+            dirs.push(new_parent);
+            parent = new_parent.parent();
+        }
+        dirs.reverse();
+        let dirs = dirs[1..].to_vec();
+
+        Ok(dirs)
+    }
+}
+
 impl PartialEq for IndexEntry {
     fn eq(&self, other: &Self) -> bool {
         self.name == other.name
@@ -186,5 +209,51 @@ impl TryFrom<(&Path, Metadata)> for EntryMetadata {
             size: metadata.size(),
             flags: min(file_path.len(), MAX_PATH_SIZE) as u32,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rstest::{fixture, rstest};
+    use sha1::Digest;
+
+    #[fixture]
+    fn oid() -> ObjectId {
+        let mut hasher = sha1::Sha1::new();
+        hasher.update("test data");
+        ObjectId::try_parse(format!("{:x}", hasher.finalize())).unwrap()
+    }
+    
+    #[fixture]
+    fn entry_metadata() -> EntryMetadata {
+        EntryMetadata {
+            mode: EntryMode::Directory,
+            ..Default::default()
+        }
+    }
+
+    #[rstest]
+    fn test_entry_parent_dirs(oid: ObjectId, entry_metadata: EntryMetadata) {
+        let entry = IndexEntry::new(PathBuf::from("a/b/c"), oid, entry_metadata);
+
+        let dirs = entry.parent_dirs().unwrap();
+        pretty_assertions::assert_eq!(dirs, vec![Path::new("a"), Path::new("a/b")]);
+    }
+
+    #[rstest]
+    fn test_entry_parent_dirs_root(oid: ObjectId, entry_metadata: EntryMetadata) {
+        let entry = IndexEntry::new(PathBuf::from("a"), oid, entry_metadata);
+
+        let dirs = entry.parent_dirs().unwrap();
+        pretty_assertions::assert_eq!(dirs, Vec::<&Path>::new());
+    }
+
+    #[rstest]
+    fn test_entry_basename(oid: ObjectId, entry_metadata: EntryMetadata) {
+        let entry = IndexEntry::new(PathBuf::from("a/b/c"), oid, entry_metadata);
+
+        let basename = entry.basename().unwrap();
+        pretty_assertions::assert_eq!(basename, "c");
     }
 }

@@ -223,7 +223,7 @@ impl Index {
         let header_bytes = self.header.serialize()?;
         writer.write(&header_bytes)?;
 
-        for entry in &self.entries {
+        for entry in self.entries() {
             let entry_bytes = entry.serialize()?;
             writer.write(&entry_bytes)?;
         }
@@ -232,5 +232,31 @@ impl Index {
         self.changed = false;
 
         Ok(())
+    }
+
+    pub fn entries(&self) -> impl Iterator<Item = &IndexEntry> {
+        self.entries.iter()
+    }
+
+    pub fn into_entries(self) -> impl Iterator<Item = IndexEntry> {
+        self.entries.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a Index {
+    type Item = &'a IndexEntry;
+    type IntoIter = std::collections::btree_set::Iter<'a, IndexEntry>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.iter()
+    }
+}
+
+impl IntoIterator for Index {
+    type Item = IndexEntry;
+    type IntoIter = std::collections::btree_set::IntoIter<IndexEntry>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.into_iter()
     }
 }

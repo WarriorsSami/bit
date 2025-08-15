@@ -18,8 +18,8 @@ impl Workspace {
         &self.path
     }
 
-    pub fn list_files(&self, file_path: Option<PathBuf>) -> Vec<PathBuf> {
-        let file_path = file_path.unwrap_or_else(|| self.path.clone().into());
+    pub fn list_files(&self, root_file_path: Option<PathBuf>) -> Vec<PathBuf> {
+        let file_path = root_file_path.unwrap_or_else(|| self.path.clone().into());
 
         if file_path.is_dir() {
             WalkDir::new(&file_path)
