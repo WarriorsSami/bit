@@ -9,6 +9,9 @@ impl Repository {
         let index = self.index();
         let mut index = index.lock().await;
 
+        // Load the index file from the disk
+        index.rehydrate()?;
+
         for file_path in paths {
             // Convert the file path to an absolute path using `canonicalize`
             let absolute_path = Path::new(&file_path).canonicalize()?;

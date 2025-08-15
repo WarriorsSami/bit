@@ -29,11 +29,12 @@ impl ObjectId {
 
     pub fn read_h40_from<R: io::Read + ?Sized>(reader: &mut R) -> anyhow::Result<Self> {
         let mut hex40 = String::with_capacity(40);
-        let mut buffer = [0; 2]; // Read two bytes at a time
+        let mut buffer = [0; 1];
 
         for _ in 0..20 {
             reader.read_exact(&mut buffer)?;
-            hex40.push_str(&format!("{:02x}", u16::from_be_bytes(buffer)));
+            let hex_pair = &format!("{:02x}", u8::from_be_bytes(buffer));
+            hex40.push_str(hex_pair);
         }
 
         Self::try_parse(hex40)

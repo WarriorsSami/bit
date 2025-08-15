@@ -131,7 +131,7 @@ impl Unpackable for IndexEntry {
             .iter()
             .position(|&b| b == 0)
             .ok_or_else(|| anyhow::anyhow!("Missing null terminator in entry name"))?;
-        let name_bytes = &bytes[62..name_end];
+        let name_bytes = &bytes[62..62 + name_end];
         let name = PathBuf::from(
             std::str::from_utf8(name_bytes)
                 .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in entry name"))?,

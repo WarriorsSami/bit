@@ -143,9 +143,15 @@ impl Index {
 
     pub fn rehydrate(&mut self) -> anyhow::Result<()> {
         let mut index_file = std::fs::OpenOptions::new().read(true).open(self.path())?;
-        let lock = file_guard::lock(&mut index_file, file_guard::Lock::Shared, 0, 1)?;
+        let mut lock = file_guard::lock(&mut index_file, file_guard::Lock::Shared, 0, 1)?;
 
         self.clear();
+
+        // if the index file is empty, return early
+        if lock.deref_mut().metadata()?.len() == 0 {
+            return Ok(());
+        }
+
         let mut reader = Checksum::new(lock);
         let entries_count = self.parse_header(&mut reader)?;
         self.parse_entries(entries_count, &mut reader)?;
