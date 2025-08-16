@@ -17,7 +17,14 @@ impl Repository {
             let absolute_path = Path::new(&file_path).canonicalize()?;
 
             for path in self.workspace().list_files(Some(absolute_path)) {
-                let data = self.workspace().read_file(&path)?;
+                let data = self.workspace().read_file(&path);
+
+                if data.is_err() {
+                    // If the file does not exist or cannot be read, skip it
+                    continue;
+                }
+                let data = data?;
+
                 let stat = self.workspace().stat_file(&path)?;
 
                 let blob = Blob::new(data.as_str(), stat.clone().mode.try_into()?);

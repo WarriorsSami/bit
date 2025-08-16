@@ -1,4 +1,4 @@
-use crate::domain::objects::index_entry::{ENTRY_BLOCK, ENTRY_MIN_SIZE, IndexEntry};
+use crate::domain::objects::index_entry::{IndexEntry, ENTRY_BLOCK, ENTRY_MIN_SIZE};
 use crate::domain::objects::object::{Packable, Unpackable};
 use anyhow::anyhow;
 use byteorder::{ByteOrder, WriteBytesExt};
@@ -6,7 +6,7 @@ use bytes::Bytes;
 use derive_new::new;
 use file_guard::FileGuard;
 use sha1::{Digest, Sha1};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::ops::DerefMut;
 use std::path::Path;
@@ -113,7 +113,7 @@ impl<'f> Checksum<'f> {
 #[derive(Debug, Clone)]
 pub struct Index {
     path: Box<Path>,
-    entries: BTreeSet<IndexEntry>,
+    entries: BTreeMap<Box<Path>, IndexEntry>,
     header: Header,
     changed: bool,
 }
@@ -122,7 +122,7 @@ impl Index {
     pub fn new(path: Box<Path>) -> Self {
         Index {
             path,
-            entries: BTreeSet::new(),
+            entries: BTreeMap::new(),
             header: Header::new(String::from(SIGNATURE), VERSION, 0),
             changed: false,
         }
@@ -189,7 +189,10 @@ impl Index {
             let entry_bytes = Bytes::from(entry_bytes);
             let entry = IndexEntry::deserialize(entry_bytes)?;
 
-            self.entries.insert(entry);
+            self.entries.insert(
+                entry.name.clone().into_boxed_path(),
+                entry,
+            );
         }
 
         self.header.entries_count = entries_count;
@@ -197,8 +200,26 @@ impl Index {
         Ok(())
     }
 
+    fn discard_conflicts(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
+        entry.parent_dirs()?
+            .into_iter()
+            .for_each(|parent| {
+                println!("Discarding conflicts for parent: {}", parent.display());
+                let parent = parent.to_owned().into_boxed_path();
+                self.entries.remove(&parent);
+            });
+
+        Ok(())
+    }
+
     pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
-        self.entries.insert(entry);
+        println!("Adding entry: {}", entry.name.display());
+        self.discard_conflicts(&entry)?;
+
+        self.entries.insert(
+            entry.name.clone().into_boxed_path(),
+            entry,
+        );
         self.header.entries_count = self.entries.len() as u32;
         self.changed = true;
 
@@ -235,28 +256,10 @@ impl Index {
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &IndexEntry> {
-        self.entries.iter()
+        self.entries.values()
     }
 
     pub fn into_entries(self) -> impl Iterator<Item = IndexEntry> {
-        self.entries.into_iter()
-    }
-}
-
-impl<'a> IntoIterator for &'a Index {
-    type Item = &'a IndexEntry;
-    type IntoIter = std::collections::btree_set::Iter<'a, IndexEntry>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.entries.iter()
-    }
-}
-
-impl IntoIterator for Index {
-    type Item = IndexEntry;
-    type IntoIter = std::collections::btree_set::IntoIter<IndexEntry>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.entries.into_iter()
+        self.entries.into_values()
     }
 }

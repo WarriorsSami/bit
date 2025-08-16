@@ -224,7 +224,7 @@ mod tests {
         hasher.update("test data");
         ObjectId::try_parse(format!("{:x}", hasher.finalize())).unwrap()
     }
-    
+
     #[fixture]
     fn entry_metadata() -> EntryMetadata {
         EntryMetadata {

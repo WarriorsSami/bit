@@ -19,10 +19,10 @@ impl Workspace {
     }
 
     pub fn list_files(&self, root_file_path: Option<PathBuf>) -> Vec<PathBuf> {
-        let file_path = root_file_path.unwrap_or_else(|| self.path.clone().into());
+        let root_file_path = root_file_path.unwrap_or_else(|| self.path.clone().into());
 
-        if file_path.is_dir() {
-            WalkDir::new(&file_path)
+        if root_file_path.is_dir() {
+            WalkDir::new(&root_file_path)
                 .into_iter()
                 .filter_map(|entry| {
                     let entry = entry.ok()?;
@@ -39,14 +39,14 @@ impl Workspace {
                     });
 
                     if path.is_file() && !is_ignored {
-                        Some(path.strip_prefix(&file_path).ok()?.to_path_buf())
+                        Some(path.strip_prefix(self.path.as_ref()).ok()?.to_path_buf())
                     } else {
                         None
                     }
                 })
                 .collect::<Vec<_>>()
         } else {
-            vec![file_path.file_name().map(PathBuf::from).unwrap_or_default()]
+            vec![root_file_path.file_name().map(PathBuf::from).unwrap_or_default()]
         }
     }
 
