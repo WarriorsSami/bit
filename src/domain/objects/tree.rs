@@ -48,9 +48,6 @@ pub struct Tree<'tree> {
 
 impl<'tree> Tree<'tree> {
     pub fn build(entries: impl Iterator<Item = &'tree IndexEntry> + 'tree) -> anyhow::Result<Self> {
-        let mut entries = entries.collect::<Vec<_>>();
-        entries.sort_by(|a, b| a.name.cmp(&b.name));
-
         let mut root = Self::default();
 
         for entry in entries {

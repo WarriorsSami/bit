@@ -150,7 +150,7 @@ impl Unpackable for IndexEntry {
         let flags = byteorder::NetworkEndian::read_u16(&bytes[60..62]) as u32;
 
         // Extract the entry name, which is null-terminated
-        let name_end = bytes
+        let name_end = bytes[62..]
             .iter()
             .position(|&b| b == 0)
             .ok_or_else(|| anyhow::anyhow!("Missing null terminator in entry name"))?;
