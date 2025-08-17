@@ -46,7 +46,12 @@ impl Workspace {
                 })
                 .collect::<Vec<_>>()
         } else {
-            vec![root_file_path.file_name().map(PathBuf::from).unwrap_or_default()]
+            vec![
+                root_file_path
+                    .strip_prefix(self.path.as_ref())
+                    .map(PathBuf::from)
+                    .unwrap_or_default(),
+            ]
         }
     }
 

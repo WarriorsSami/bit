@@ -204,7 +204,6 @@ impl Index {
         entry.parent_dirs()?
             .into_iter()
             .for_each(|parent| {
-                println!("Discarding conflicts for parent: {}", parent.display());
                 let parent = parent.to_owned().into_boxed_path();
                 self.entries.remove(&parent);
             });
@@ -213,7 +212,6 @@ impl Index {
     }
 
     pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
-        println!("Adding entry: {}", entry.name.display());
         self.discard_conflicts(&entry)?;
 
         self.entries.insert(
