@@ -518,7 +518,8 @@ fn replace_file_with_directory_successfully() -> Result<(), Box<dyn std::error::
 }
 
 #[test]
-fn replace_directory_having_only_direct_children_with_file_successfully() -> Result<(), Box<dyn std::error::Error>> {
+fn replace_directory_having_only_direct_children_with_file_successfully()
+-> Result<(), Box<dyn std::error::Error>> {
     common::redirect_temp_dir();
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("bit")?;
@@ -581,14 +582,16 @@ fn replace_directory_having_only_direct_children_with_file_successfully() -> Res
     std::fs::remove_dir_all(dir.child(".git").path())?;
 
     let mut git_cmd = Command::new("git");
-    git_cmd.current_dir(dir.path())
+    git_cmd
+        .current_dir(dir.path())
         .arg("init")
         .assert()
         .success();
 
     // Add the new file to the index using git
     let mut git_add_cmd = Command::new("git");
-    git_add_cmd.current_dir(dir.path())
+    git_add_cmd
+        .current_dir(dir.path())
         .arg("add")
         .arg(".")
         .assert()
@@ -603,7 +606,8 @@ fn replace_directory_having_only_direct_children_with_file_successfully() -> Res
 }
 
 #[test]
-fn replace_directory_having_nested_children_with_file_successfully() -> Result<(), Box<dyn std::error::Error>> {
+fn replace_directory_having_nested_children_with_file_successfully()
+-> Result<(), Box<dyn std::error::Error>> {
     common::redirect_temp_dir();
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("bit")?;
@@ -669,14 +673,16 @@ fn replace_directory_having_nested_children_with_file_successfully() -> Result<(
     // Delete the .git directory and recreate it using git
     std::fs::remove_dir_all(dir.child(".git").path())?;
     let mut git_cmd = Command::new("git");
-    git_cmd.current_dir(dir.path())
+    git_cmd
+        .current_dir(dir.path())
         .arg("init")
         .assert()
         .success();
 
     // Add the new file to the index using git
     let mut git_add_cmd = Command::new("git");
-    git_add_cmd.current_dir(dir.path())
+    git_add_cmd
+        .current_dir(dir.path())
         .arg("add")
         .arg(".")
         .assert()

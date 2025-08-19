@@ -1,4 +1,4 @@
-use crate::domain::objects::index_entry::{IndexEntry, ENTRY_BLOCK, ENTRY_MIN_SIZE};
+use crate::domain::objects::index_entry::{ENTRY_BLOCK, ENTRY_MIN_SIZE, IndexEntry};
 use crate::domain::objects::object::{Packable, Unpackable};
 use anyhow::anyhow;
 use byteorder::{ByteOrder, WriteBytesExt};
@@ -6,7 +6,7 @@ use bytes::Bytes;
 use derive_new::new;
 use file_guard::FileGuard;
 use sha1::{Digest, Sha1};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 use std::ops::DerefMut;
 use std::path::Path;
@@ -114,6 +114,7 @@ impl<'f> Checksum<'f> {
 pub struct Index {
     path: Box<Path>,
     entries: BTreeMap<Box<Path>, IndexEntry>,
+    children: BTreeMap<Box<Path>, BTreeSet<Box<Path>>>,
     header: Header,
     changed: bool,
 }
@@ -123,6 +124,7 @@ impl Index {
         Index {
             path,
             entries: BTreeMap::new(),
+            children: BTreeMap::new(),
             header: Header::new(String::from(SIGNATURE), VERSION, 0),
             changed: false,
         }
@@ -134,6 +136,7 @@ impl Index {
 
     fn clear(&mut self) {
         self.entries.clear();
+        self.children.clear();
         self.header = Header {
             entries_count: 0,
             ..self.header.clone()
@@ -189,10 +192,8 @@ impl Index {
             let entry_bytes = Bytes::from(entry_bytes);
             let entry = IndexEntry::deserialize(entry_bytes)?;
 
-            self.entries.insert(
-                entry.name.clone().into_boxed_path(),
-                entry,
-            );
+            self.entries
+                .insert(entry.name.clone().into_boxed_path(), entry);
         }
 
         self.header.entries_count = entries_count;
@@ -200,24 +201,71 @@ impl Index {
         Ok(())
     }
 
+    // TODO: Rollback on error
     fn discard_conflicts(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
-        entry.parent_dirs()?
+        entry.parent_dirs()?.into_iter().for_each(|parent| {
+            let _ = self.remove_entry(parent);
+        });
+        self.remove_children(&entry.name)
+    }
+
+    fn store_entry(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
+        let entry_parents = entry
+            .parent_dirs()?
             .into_iter()
-            .for_each(|parent| {
-                let parent = parent.to_owned().into_boxed_path();
-                self.entries.remove(&parent);
-            });
+            .map(|parent| parent.to_owned().into_boxed_path())
+            .collect::<BTreeSet<_>>();
+
+        self.entries
+            .insert(entry.name.clone().into_boxed_path(), entry.clone());
+
+        for parent in entry_parents {
+            self.children
+                .entry(parent.clone())
+                .or_default()
+                .insert(entry.name.clone().into_boxed_path());
+        }
 
         Ok(())
+    }
+
+    fn remove_children(&mut self, path_name: &Path) -> anyhow::Result<()> {
+        if let Some(children) = self.children.remove(path_name) {
+            for child in children {
+                self.remove_entry(&child)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn remove_entry(&mut self, path_name: &Path) -> anyhow::Result<()> {
+        match self.entries.remove(path_name) {
+            None => Ok(()),
+            Some(entry) => {
+                entry
+                    .parent_dirs()?
+                    .into_iter()
+                    .map(|parent| parent.to_owned().into_boxed_path())
+                    .for_each(|parent| {
+                        if let Some(children) = self.children.get_mut(&parent) {
+                            children.remove(path_name);
+                            if children.is_empty() {
+                                self.children.remove(&parent);
+                            }
+                        }
+                    });
+
+                Ok(())
+            }
+        }
     }
 
     pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
         self.discard_conflicts(&entry)?;
 
-        self.entries.insert(
-            entry.name.clone().into_boxed_path(),
-            entry,
-        );
+        self.store_entry(entry)?;
+
         self.header.entries_count = self.entries.len() as u32;
         self.changed = true;
 

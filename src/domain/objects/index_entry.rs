@@ -30,6 +30,7 @@ impl IndexEntry {
             .ok_or_else(|| anyhow::anyhow!("Invalid file name"))
     }
 
+    // TODO: Stop after reaching the repository's root
     pub fn parent_dirs(&self) -> anyhow::Result<Vec<&Path>> {
         let mut dirs = Vec::new();
         let mut parent = self.name.parent();
