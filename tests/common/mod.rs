@@ -9,6 +9,11 @@ pub fn redirect_temp_dir() {
     unsafe {
         std::env::set_var("TMPDIR", TMPDIR);
     }
+
+    // Ensure the TMPDIR exists
+    if !std::path::Path::new(TMPDIR).exists() {
+        std::fs::create_dir_all(TMPDIR).expect("Failed to create TMPDIR");
+    }
 }
 
 // Helper function to create hexdump representation
