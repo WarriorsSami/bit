@@ -616,7 +616,7 @@ fn replace_directory_having_nested_children_with_file_successfully()
     cmd.assert().success().stdout(predicate::str::contains(
         "Initialized empty Git repository in",
     ));
-
+    
     // Create a file and add it to the index
     let file_name = format!("{}.txt", Word().fake::<String>());
     let file_path = dir.child(file_name.clone());

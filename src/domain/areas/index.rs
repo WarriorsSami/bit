@@ -192,8 +192,7 @@ impl Index {
             let entry_bytes = Bytes::from(entry_bytes);
             let entry = IndexEntry::deserialize(entry_bytes)?;
 
-            self.entries
-                .insert(entry.name.clone().into_boxed_path(), entry);
+            self.store_entry(&entry)?;
         }
 
         self.header.entries_count = entries_count;
@@ -201,15 +200,18 @@ impl Index {
         Ok(())
     }
 
-    // TODO: Rollback on error
     fn discard_conflicts(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
-        entry.parent_dirs()?.into_iter().for_each(|parent| {
-            let _ = self.remove_entry(parent);
-        });
+        entry
+            .parent_dirs()?
+            .into_iter()
+            .map(|parent| {
+                self.remove_entry(parent)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         self.remove_children(&entry.name)
     }
 
-    fn store_entry(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
+    fn store_entry(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
         let entry_parents = entry
             .parent_dirs()?
             .into_iter()
@@ -263,8 +265,7 @@ impl Index {
 
     pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
         self.discard_conflicts(&entry)?;
-
-        self.store_entry(entry)?;
+        self.store_entry(&entry)?;
 
         self.header.entries_count = self.entries.len() as u32;
         self.changed = true;
