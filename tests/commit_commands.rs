@@ -1,3 +1,4 @@
+use std::fs;
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild};
 use assert_fs::prelude::PathCreateDir;
@@ -10,6 +11,11 @@ use pretty_assertions::assert_eq;
 
 mod common;
 
+// TODO: find a way to compare the commit objects created by `bit commit` and `git commit`
+//       The problem is that the commit timestamp will be different, so the OID will be different
+//       One way to solve this would be to allow passing the timestamp as an environment variable
+//       Another way would be to parse the commit object and compare the fields except for the timestamp
+//       Another way would be to mock the timestamp generation function to return a fixed value during tests
 #[test]
 fn write_commit_object_successfully_for_flat_project() -> Result<(), Box<dyn std::error::Error>> {
     common::redirect_temp_dir();
@@ -37,6 +43,15 @@ fn write_commit_object_successfully_for_flat_project() -> Result<(), Box<dyn std
     let author_email = FreeEmail().fake::<String>();
     let message = Words(5..10).fake::<Vec<String>>().join("\n");
 
+    // add the files to the index
+    let file_names_str = file_names.join(" ");
+    let mut cmd = Command::cargo_bin("bit")?;
+    cmd.current_dir(dir.path())
+        .arg("add")
+        .args(file_names_str.split_whitespace())
+        .assert()
+        .success();
+
     // commit the files using bit
     let mut sut = Command::cargo_bin("bit")?;
     sut.current_dir(dir.path())
@@ -63,50 +78,54 @@ fn write_commit_object_successfully_for_flat_project() -> Result<(), Box<dyn std
 
     // read the HEAD file to get the commit OID
     let head_file_path = dir.child(".git/HEAD").to_path_buf();
-    let head_file_content = std::fs::read_to_string(head_file_path)?;
+    let head_file_content = fs::read_to_string(head_file_path)?;
 
     assert_eq!(head_file_content.len(), 40);
     assert!(head_file_content.chars().all(|c| c.is_ascii_hexdigit()));
     assert!(commit_excerpt.contains(&head_file_content[..7]));
 
-    let commit_oid = head_file_content;
+    // remove the .git directory and recreate the above scenario using git to compare the commit objects
+    fs::remove_dir_all(dir.child(".git"))?;
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir.path()).arg("init");
+    cmd.assert().success().stdout(predicate::str::contains(
+        "Initialized empty Git repository in",
+    ));
 
-    // read the commit object
-    let mut sut = Command::cargo_bin("bit")?;
-    sut.current_dir(dir.path())
-        .arg("cat-file")
-        .arg("-p")
-        .arg(&commit_oid);
+    // set the author config
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir.path())
+        .arg("config")
+        .arg("user.name")
+        .arg(&author_name);
+    cmd.assert().success().stdout(predicate::str::is_empty());
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir.path())
+        .arg("config")
+        .arg("user.email")
+        .arg(&author_email);
+    cmd.assert().success().stdout(predicate::str::is_empty());
 
-    let output = sut
+    // add the files to the index
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir.path()).arg("add").arg(".");
+    cmd.assert().success().stdout(predicate::str::is_empty());
+
+    // commit the files
+    let mut cmd = Command::new("git");
+    cmd.current_dir(dir.path())
+        .arg("commit")
+        .arg("-m")
+        .arg(&message);
+    let git_commit_excerpt_raw = cmd
         .assert()
         .success()
-        .stdout(predicate::str::contains(&message))
-        .stdout(predicate::str::contains(&author_name))
-        .stdout(predicate::str::contains(&author_email))
-        .stdout(predicate::str::contains("parent").count(0))
         .get_output()
         .stdout
         .trim_ascii()
         .to_vec();
-
-    // read the tree object
-    let output = String::from_utf8(output)?;
-    let tree_oid = output
-        .lines()
-        .next()
-        .unwrap()
-        .split_whitespace()
-        .last()
-        .unwrap();
-
-    let mut sut = Command::cargo_bin("bit")?;
-    sut.current_dir(dir.path())
-        .arg("cat-file")
-        .arg("-p")
-        .arg(tree_oid);
-
-    sut.assert().success();
+    let git_commit_excerpt = String::from_utf8(git_commit_excerpt_raw)?;
+    assert_eq!(commit_excerpt, git_commit_excerpt);
 
     Ok(())
 }
@@ -155,14 +174,6 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
     let author_name = Name().fake::<String>().replace(" ", "_");
     let author_email = FreeEmail().fake::<String>();
     let message = Words(5..10).fake::<Vec<String>>().join("\n");
-
-    // add all files to the index
-    // let mut sut = Command::new("git");
-    // sut.current_dir(dir.path())
-    //     .arg("add")
-    //     .arg(".")
-    //     .assert()
-    //     .success();
 
     // commit the files
     let mut sut = Command::cargo_bin("bit")?;

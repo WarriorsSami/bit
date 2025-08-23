@@ -9,7 +9,7 @@ use std::io::Write;
 pub struct Author {
     name: String,
     email: String,
-    timestamp: chrono::DateTime<chrono::Utc>,
+    timestamp: chrono::DateTime<chrono::Local>,
 }
 
 impl Author {
@@ -17,12 +17,12 @@ impl Author {
         Author {
             name,
             email,
-            timestamp: chrono::Utc::now(),
+            timestamp: chrono::Local::now(),
         }
     }
 
     pub fn display(&self) -> String {
-        format!("{} <{}> {}", self.name, self.email, self.timestamp)
+        format!("{} <{}> {} {}", self.name, self.email, self.timestamp.timestamp(), self.timestamp.format("%z"))
     }
 
     pub fn load_from_env() -> anyhow::Result<Self> {
@@ -121,11 +121,11 @@ impl Packable for Commit<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let mut object_content = vec![];
 
-        object_content.push(format!(
-            "{} {}\0",
-            self.object_type().as_str(),
-            self.display().len()
-        ));
+        // object_content.push(format!(
+        //     "{} {}\0",
+        //     self.object_type().as_str(),
+        //     self.display().len()
+        // ));
         object_content.push(format!("tree {}", self.tree_oid.as_ref()));
         if let Some(parent) = &self.parent {
             object_content.push(format!("parent {parent}"));

@@ -166,7 +166,7 @@ impl Packable for Tree<'_> {
             .iter()
             .map(|(name, tree_entry)| {
                 let mut entry_bytes = Vec::new();
-                let header = format!("{} {}", tree_entry.mode().as_u32(), name);
+                let header = format!("{:o} {}", tree_entry.mode().as_u32(), name);
                 entry_bytes.write_all(header.as_bytes())?;
                 entry_bytes.push(0);
                 tree_entry.oid()?.write_h40_to(&mut entry_bytes)?;
