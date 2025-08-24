@@ -1,4 +1,5 @@
 use crate::domain::objects::index_entry::EntryMetadata;
+use anyhow::anyhow;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -18,11 +19,19 @@ impl Workspace {
         &self.path
     }
 
-    pub fn list_files(&self, root_file_path: Option<PathBuf>) -> Vec<PathBuf> {
+    pub fn list_files(&self, root_file_path: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
         let root_file_path = root_file_path.unwrap_or_else(|| self.path.clone().into());
 
+        // Check if the root_file_path exists
+        if !root_file_path.exists() {
+            return Err(anyhow!(
+                "The specified path does not exist: {:?}",
+                root_file_path
+            ));
+        }
+
         if root_file_path.is_dir() {
-            WalkDir::new(&root_file_path)
+            Ok(WalkDir::new(&root_file_path)
                 .into_iter()
                 .filter_map(|entry| {
                     let entry = entry.ok()?;
@@ -44,14 +53,14 @@ impl Workspace {
                         None
                     }
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<_>>())
         } else {
-            vec![
+            Ok(vec![
                 root_file_path
                     .strip_prefix(self.path.as_ref())
                     .map(PathBuf::from)
                     .unwrap_or_default(),
-            ]
+            ])
         }
     }
 
