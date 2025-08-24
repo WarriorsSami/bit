@@ -12,7 +12,7 @@ use std::ops::DerefMut;
 use std::path::Path;
 
 // TODO: move header and checksum to separate modules
-// TODO: define a custom file lock type for more granular control over locking
+// TODO?: define a custom file lock type for more granular control over locking
 
 const CHECKSUM_SIZE: usize = 20; // SHA1 produces a 20-byte hash
 const HEADER_SIZE: usize = 12; // 4 bytes for marker, 4 for version, 4 for entries_count

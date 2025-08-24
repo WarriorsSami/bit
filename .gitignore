@@ -1,3 +1,4 @@
 playground/
 target/
 .idea/
+**.DS_Store
