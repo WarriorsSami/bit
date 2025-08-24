@@ -1,4 +1,3 @@
-use std::fs;
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild};
 use assert_fs::prelude::PathCreateDir;
@@ -8,6 +7,7 @@ use fake::faker::lorem::en::{Word, Words};
 use fake::faker::name::en::Name;
 use predicates::prelude::predicate;
 use pretty_assertions::assert_eq;
+use std::fs;
 
 mod common;
 
@@ -227,7 +227,7 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
         }
     }
 
-   // create fake author config and message
+    // create fake author config and message
     let author_name = Name().fake::<String>().replace(" ", "_");
     let author_email = FreeEmail().fake::<String>();
     let message = Words(5..10).fake::<Vec<String>>().join("\n");

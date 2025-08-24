@@ -207,9 +207,7 @@ impl Index {
         entry
             .parent_dirs()?
             .into_iter()
-            .map(|parent| {
-                self.remove_entry(parent)
-            })
+            .map(|parent| self.remove_entry(parent))
             .collect::<Result<Vec<_>, _>>()?;
         self.remove_children(&entry.name)
     }
@@ -276,7 +274,6 @@ impl Index {
         Ok(())
     }
 
-    // TODO: Ponder whether still needing to acquire the write lock here
     pub fn write_updates(&mut self) -> anyhow::Result<()> {
         let mut index_file = std::fs::OpenOptions::new()
             .write(true)

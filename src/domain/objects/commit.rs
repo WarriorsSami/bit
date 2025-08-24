@@ -22,7 +22,13 @@ impl Author {
     }
 
     pub fn display(&self) -> String {
-        format!("{} <{}> {} {}", self.name, self.email, self.timestamp.timestamp(), self.timestamp.format("%z"))
+        format!(
+            "{} <{}> {} {}",
+            self.name,
+            self.email,
+            self.timestamp.timestamp(),
+            self.timestamp.format("%z")
+        )
     }
 
     pub fn load_from_env() -> anyhow::Result<Self> {
