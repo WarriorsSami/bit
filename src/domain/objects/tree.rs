@@ -83,14 +83,16 @@ impl<'tree> Tree<'tree> {
                 .file_name()
                 .and_then(|s| s.to_str())
                 .context("Invalid parent")?;
-            let tree = match self.entries.get_mut(parent) {
+            // TODO: ensure directory names always end with '/'
+            let parent = format!("{}/", parent);
+            let tree = match self.entries.get_mut(&parent) {
                 Some(TreeEntry::Directory(tree)) => tree,
                 _ => {
                     let tree = Self::default();
                     self.entries
                         .insert(parent.to_string(), TreeEntry::Directory(tree.clone()));
 
-                    match self.entries.get_mut(parent) {
+                    match self.entries.get_mut(&parent) {
                         Some(TreeEntry::Directory(tree)) => tree,
                         _ => unreachable!(),
                     }
@@ -166,6 +168,8 @@ impl Packable for Tree<'_> {
             .iter()
             .map(|(name, tree_entry)| {
                 let mut entry_bytes = Vec::new();
+                let name = name.trim_end_matches('/'); // Remove trailing '/' for directories
+
                 let header = format!("{:o} {}", tree_entry.mode().as_u32(), name);
                 entry_bytes.write_all(header.as_bytes())?;
                 entry_bytes.push(0);
@@ -198,6 +202,8 @@ impl Object for Tree<'_> {
         self.entries
             .iter()
             .map(|(name, tree_entry)| {
+                let name = name.trim_end_matches('/'); // Remove trailing '/' for directories
+
                 format!(
                     "{} {} {}\t{}",
                     tree_entry.mode().as_str(),

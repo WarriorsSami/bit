@@ -3,6 +3,7 @@
 // TODO: refactor test cases to extract common setup code
 
 const TMPDIR: &str = "../playground";
+const DUMP_DIR: &str = "../playground/dump";
 
 pub fn redirect_temp_dir() {
     unsafe {

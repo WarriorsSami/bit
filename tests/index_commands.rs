@@ -117,6 +117,7 @@ fn add_multiple_files_to_index_successfully() -> Result<(), Box<dyn std::error::
     Ok(())
 }
 
+// TODO: investigate whether dir entries should also be added to index (as git seems to do)
 #[test]
 fn add_files_in_nested_directories_to_index_successfully() -> Result<(), Box<dyn std::error::Error>>
 {
