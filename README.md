@@ -1,60 +1,219 @@
-[![progress-banner](https://backend.codecrafters.io/progress/git/3d0e4242-c3ac-4d43-b7c4-29b9cd79ff03)](https://app.codecrafters.io/users/codecrafters-bot?r=2qF)
+# Bit - Just a lil' bit of Git in Rust
 
-This is a starting point for Rust solutions to the
-["Build Your Own Git" Challenge](https://codecrafters.io/challenges/git).
+A simple Git implementation written in Rust, based on the book ["Building Your Own Git"](https://shop.jcoglan.com/building-git/) by James Coglan. This project demonstrates the core concepts and internal workings of Git by implementing its fundamental features from scratch.
 
-In this challenge, you'll build a small Git implementation that's capable of
-initializing a repository, creating commits and cloning a public repository.
-Along the way we'll learn about the `.git` directory, Git objects (blobs,
-commits, trees etc.), Git's transfer protocols and more.
+## Overview
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
+`bit` is an educational Git clone that implements the essential version control functionality of Git. It provides a subset of Git commands including repository initialization, object hashing, file staging, and committing. The project is designed to help understand how Git works under the hood by implementing its core data structures and algorithms.
 
-# Passing the first stage
+### Implemented Features
 
-The entry point for your Git implementation is in `src/main.rs`. Study and
-uncomment the relevant code, and push your changes to pass the first stage:
+- **Repository initialization** (`bit init`) - Create a new Git repository
+- **Object hashing** (`bit hash-object`) - Hash files and store them in the object database
+- **Object inspection** (`bit cat-file`) - Display the contents of Git objects
+- **File staging** (`bit add`) - Add files to the index (staging area)
+- **Committing** (`bit commit`) - Create commits from staged changes
 
-```sh
-git commit -am "pass 1st stage" # any msg
-git push origin master
+## Architecture
+
+The project follows a clean architecture pattern with clear separation of concerns:
+
+```
+src/
+├── main.rs              # CLI interface and command routing
+├── lib.rs               # Library root
+├── commands/            # Command implementations
+│   ├── plumbing/        # Low-level Git commands
+│   │   ├── cat_file.rs  # Object content display
+│   │   └── hash_object.rs # Object hashing
+│   └── porcelain/       # High-level user commands
+│       ├── add.rs       # File staging
+│       ├── commit.rs    # Commit creation
+│       └── init.rs      # Repository initialization
+└── domain/              # Core domain logic
+    ├── areas/           # Git's main areas
+    │   ├── database.rs  # Object database
+    │   ├── index.rs     # Staging area (index)
+    │   ├── refs.rs      # Reference management
+    │   ├── repository.rs # Repository operations
+    │   └── workspace.rs # Working directory
+    └── objects/         # Git object types
+        ├── blob.rs      # File content objects
+        ├── commit.rs    # Commit objects
+        ├── tree.rs      # Directory tree objects
+        ├── object_id.rs # SHA-1 identifiers
+        └── index_entry.rs # Index entry representation
 ```
 
-That's all!
+### Key Components
 
-# Stage 2 & beyond
+- **Repository**: Central coordinator that manages all Git operations
+- **Database**: Handles object storage and retrieval using SHA-1 hashing
+- **Index**: Manages the staging area where changes are prepared for commits
+- **Workspace**: Interfaces with the working directory and file system
+- **Objects**: Implements Git's object model (blobs, trees, commits)
 
-Note: This section is for stages 2 and beyond.
+## How to Run Locally
 
-1. Ensure you have `cargo (1.82)` installed locally
-1. Run `./your_program.sh` to run your Git implementation, which is implemented
-   in `src/main.rs`. This command compiles your Rust project, so it might be
-   slow the first time you run it. Subsequent runs will be fast.
-1. Commit your changes and run `git push origin master` to submit your solution
-   to CodeCrafters. Test output will be streamed to your terminal.
+### Prerequisites
 
-# Testing locally
+- Rust 1.88 or later
+- Cargo (comes with Rust)
 
-The `your_program.sh` script is expected to operate on the `.git` folder inside
-the current working directory. If you're running this inside the root of this
-repository, you might end up accidentally damaging your repository's `.git`
-folder.
+### Installation
 
-We suggest executing `your_program.sh` in a different folder when testing
-locally. For example:
+1. Clone the repository:
+   ```bash
+   git clone <repository-url>
+   cd bit
+   ```
 
-```sh
-mkdir -p /tmp/testing && cd /tmp/testing
-/path/to/your/repo/your_program.sh init
+2. Build the project:
+   ```bash
+   cargo build --release
+   ```
+
+3. The binary will be available at `target/release/bit`
+
+### Usage
+
+Initialize a new repository:
+```bash
+./target/release/bit init [path]
 ```
 
-To make this easier to type out, you could add a
-[shell alias](https://shapeshed.com/unix-alias/):
-
-```sh
-alias mygit=/path/to/your/repo/your_program.sh
-
-mkdir -p /tmp/testing && cd /tmp/testing
-mygit init
+Hash a file:
+```bash
+./target/release/bit hash-object [-w] <file>
 ```
+
+View object contents:
+```bash
+./target/release/bit cat-file -p <sha>
+```
+
+Stage files:
+```bash
+./target/release/bit add <file1> [file2] ...
+```
+
+Create a commit:
+```bash
+./target/release/bit commit -m "commit message"
+```
+
+## How to Run Tests
+
+The project includes comprehensive integration and unit tests that verify compatibility with Git's behavior.
+
+### Test Configuration
+
+**Important**: Before running tests, you need to configure the temporary directory path:
+
+1. Set the `TMPDIR` environment variable or ensure the default `../playground` directory exists:
+   ```bash
+   mkdir -p ../playground
+   ```
+
+2. The tests use a custom temporary directory (`../playground`) instead of the system default to avoid conflicts and provide consistent test environments.
+
+### Running Tests
+
+Run all tests:
+```bash
+cargo test
+```
+
+Run specific test modules:
+```bash
+# Test repository initialization
+cargo test init
+
+# Test index operations
+cargo test index_commands
+
+# Test blob operations
+cargo test blob_commands
+
+# Test commit operations  
+cargo test commit_commands
+```
+
+Run tests with output:
+```bash
+cargo test -- --nocapture
+```
+
+### Test Features
+
+The test suite includes:
+
+- **Integration tests** that verify command-line interface behavior
+- **Compatibility tests** that compare `bit` output with actual Git
+- **Hexdump utilities** for debugging binary index differences
+- **Concurrent operation tests** for index locking behavior
+- **Custom assertions** using `pretty_assertions` for better diff visualization
+
+The tests use the `assert_index_eq!` macro to compare binary index files with hexdump output for improved debugging when differences occur.
+
+## Roadmap
+
+### Current Status
+- ✅ Repository initialization
+- ✅ Object hashing and storage
+- ✅ Basic file staging (add command)
+- ✅ Simple commit creation
+- ✅ Object content inspection
+- ✅ Index file format compatibility with Git
+
+### Planned Features
+
+#### Short Term
+- [ ] Branch creation and switching
+- [ ] Basic merge operations
+- [ ] Status command to show working directory state
+- [ ] Log command to view commit history
+- [ ] Diff command to show changes
+
+#### Medium Term
+- [ ] Remote repository support
+- [ ] Clone command
+- [ ] Push/pull operations
+- [ ] Tag management
+- [ ] Conflict resolution for merges
+
+#### Long Term
+- [ ] Advanced merge strategies
+- [ ] Rebase operations
+- [ ] Submodule support
+- [ ] Hooks system
+- [ ] Performance optimizations for large repositories
+
+### Known Limitations
+
+- No networking support (clone, push, pull)
+- Limited merge capabilities
+- No branch management
+- Simplified object packing (no pack files)
+- Basic reference handling
+
+## Contributing
+
+This project is primarily educational, but contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass
+5. Submit a pull request
+
+## License
+
+This project is based on ["Building Your Own Git"](https://shop.jcoglan.com/building-git/) by James Coglan and is intended for educational purposes.
+
+## Acknowledgments
+
+- James Coglan for the excellent "Building Your Own Git" book
+- The Git project for the reference implementation
+- The Rust community for excellent tooling and libraries
+
