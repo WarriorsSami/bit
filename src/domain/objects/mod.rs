@@ -1,8 +1,7 @@
 pub mod blob;
 pub mod commit;
-pub mod entry_mode;
-pub mod index_entry;
-pub mod object;
-pub mod object_id;
-pub mod object_type;
 pub mod tree;
+mod core;
+
+pub use core::{CHECKSUM_SIZE, HEADER_SIZE, SIGNATURE, VERSION}; 
+pub use core::{entry_mode, index_entry, object_id, object, object_type, checksum, index_header};

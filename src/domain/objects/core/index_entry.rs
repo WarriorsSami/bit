@@ -1,6 +1,6 @@
-use crate::domain::objects::entry_mode::{EntryMode, FileMode};
-use crate::domain::objects::object::{Packable, Unpackable};
-use crate::domain::objects::object_id::ObjectId;
+use crate::domain::objects::core::entry_mode::{EntryMode, FileMode};
+use crate::domain::objects::core::object::{Packable, Unpackable};
+use crate::domain::objects::core::object_id::ObjectId;
 use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
 use derive_new::new;

@@ -1,124 +1,20 @@
-use crate::domain::objects::index_entry::{ENTRY_BLOCK, ENTRY_MIN_SIZE, IndexEntry};
+use crate::domain::objects::checksum::Checksum;
+use crate::domain::objects::index_entry::{IndexEntry, ENTRY_BLOCK, ENTRY_MIN_SIZE};
+use crate::domain::objects::index_header::IndexHeader;
 use crate::domain::objects::object::{Packable, Unpackable};
+use crate::domain::objects::{HEADER_SIZE, SIGNATURE, VERSION};
 use anyhow::anyhow;
-use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
-use derive_new::new;
-use file_guard::FileGuard;
-use sha1::{Digest, Sha1};
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::{Read, Write};
 use std::ops::DerefMut;
 use std::path::Path;
-
-// TODO: move header and checksum to separate modules
-// TODO?: define a custom file lock type for more granular control over locking
-
-const CHECKSUM_SIZE: usize = 20; // SHA1 produces a 20-byte hash
-const HEADER_SIZE: usize = 12; // 4 bytes for marker, 4 for version, 4 for entries_count
-const SIGNATURE: &str = "DIRC"; // Signature for the index file
-const VERSION: u32 = 2; // Version of the index file format
-
-#[derive(Debug, Clone, new)]
-struct Header {
-    marker: String,
-    version: u32,
-    entries_count: u32,
-}
-
-impl Packable for Header {
-    fn serialize(&self) -> anyhow::Result<Bytes> {
-        // pack!(self.marker, self.version, self.entries_count => "a4N2")
-        let mut bytes = Vec::new();
-        bytes.write_all(self.marker.as_bytes())?;
-        bytes.write_u32::<byteorder::NetworkEndian>(self.version)?;
-        bytes.write_u32::<byteorder::NetworkEndian>(self.entries_count)?;
-
-        Ok(Bytes::from(bytes))
-    }
-}
-
-impl Unpackable for Header {
-    fn deserialize(bytes: Bytes) -> anyhow::Result<Self> {
-        if bytes.len() < HEADER_SIZE {
-            return Err(anyhow!("Invalid header size"));
-        }
-
-        let marker = String::from_utf8(bytes[0..4].to_vec())
-            .map_err(|_| anyhow!("Invalid marker in index header"))?;
-        let version = byteorder::NetworkEndian::read_u32(&bytes[4..8]);
-        let entries_count = byteorder::NetworkEndian::read_u32(&bytes[8..12]);
-
-        Ok(Header {
-            marker,
-            version,
-            entries_count,
-        })
-    }
-}
-
-#[derive(Debug)]
-struct Checksum<'f> {
-    file: FileGuard<&'f mut std::fs::File>,
-    digest: Sha1,
-}
-
-impl<'f> Checksum<'f> {
-    fn new(file: FileGuard<&'f mut std::fs::File>) -> Self {
-        Checksum {
-            file,
-            digest: Sha1::new(),
-        }
-    }
-
-    fn read(&mut self, size: usize) -> anyhow::Result<Bytes> {
-        let mut buffer = vec![0; size];
-        self.file
-            .deref_mut()
-            .read_exact(&mut buffer)
-            .map_err(|_| anyhow!("Unexpected end-of-file while reading index"))?;
-
-        self.digest.update(&buffer);
-        Ok(Bytes::from(buffer))
-    }
-
-    fn write(&mut self, data: &[u8]) -> anyhow::Result<()> {
-        self.file.deref_mut().write_all(data)?;
-        self.digest.update(data);
-        Ok(())
-    }
-
-    fn write_checksum(&mut self) -> anyhow::Result<()> {
-        let checksum = self.digest.clone().finalize();
-        self.file
-            .deref_mut()
-            .write_all(checksum.as_slice())
-            .map_err(|_| anyhow!("Failed to write checksum to index file"))?;
-
-        Ok(())
-    }
-
-    fn verify(&mut self) -> anyhow::Result<()> {
-        let mut expected_checksum = [0u8; CHECKSUM_SIZE];
-        self.file.deref_mut().read_exact(&mut expected_checksum)?;
-
-        let actual_checksum = self.digest.clone().finalize();
-        let actual_checksum = actual_checksum.as_slice();
-
-        if expected_checksum != actual_checksum {
-            return Err(anyhow!("Checksum does not match value stored on disk"));
-        }
-
-        Ok(())
-    }
-}
 
 #[derive(Debug, Clone)]
 pub struct Index {
     path: Box<Path>,
     entries: BTreeMap<Box<Path>, IndexEntry>,
     children: BTreeMap<Box<Path>, BTreeSet<Box<Path>>>,
-    header: Header,
+    header: IndexHeader,
     changed: bool,
 }
 
@@ -128,7 +24,7 @@ impl Index {
             path,
             entries: BTreeMap::new(),
             children: BTreeMap::new(),
-            header: Header::new(String::from(SIGNATURE), VERSION, 0),
+            header: IndexHeader::new(String::from(SIGNATURE), VERSION, 0),
             changed: false,
         }
     }
@@ -140,10 +36,7 @@ impl Index {
     fn clear(&mut self) {
         self.entries.clear();
         self.children.clear();
-        self.header = Header {
-            entries_count: 0,
-            ..self.header.clone()
-        };
+        self.header = IndexHeader::empty();
         self.changed = false;
     }
 
@@ -167,7 +60,7 @@ impl Index {
 
     fn parse_header(&self, reader: &mut Checksum) -> anyhow::Result<u32> {
         let header_bytes = reader.read(HEADER_SIZE)?;
-        let header = Header::deserialize(header_bytes)?;
+        let header = IndexHeader::deserialize(header_bytes)?;
 
         if header.marker != SIGNATURE {
             return Err(anyhow!("Invalid index file signature"));
@@ -284,7 +177,7 @@ impl Index {
 
         let mut writer = Checksum::new(lock);
 
-        self.header = Header {
+        self.header = IndexHeader {
             entries_count: self.entries.len() as u32,
             ..self.header.clone()
         };

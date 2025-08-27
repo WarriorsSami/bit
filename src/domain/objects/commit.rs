@@ -1,6 +1,6 @@
-use crate::domain::objects::object::{Object, Packable};
-use crate::domain::objects::object_id::ObjectId;
-use crate::domain::objects::object_type::ObjectType;
+use crate::domain::objects::core::object::{Object, Packable};
+use crate::domain::objects::core::object_id::ObjectId;
+use crate::domain::objects::core::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
 use std::io::Write;

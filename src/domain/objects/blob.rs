@@ -1,6 +1,6 @@
-use crate::domain::objects::entry_mode::FileMode;
-use crate::domain::objects::object::{Object, Packable};
-use crate::domain::objects::object_type::ObjectType;
+use crate::domain::objects::core::entry_mode::FileMode;
+use crate::domain::objects::core::object::{Object, Packable};
+use crate::domain::objects::core::object_type::ObjectType;
 use bytes::Bytes;
 use derive_new::new;
 use std::io::Write;
