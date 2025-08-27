@@ -1,9 +1,9 @@
+use crate::common;
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild};
 use fake::Fake;
 use fake::faker::lorem::en::{Word, Words};
 use predicates::prelude::predicate;
-use crate::common;
 
 #[test]
 fn adding_an_unreadable_file_is_ignored() -> Result<(), Box<dyn std::error::Error>> {

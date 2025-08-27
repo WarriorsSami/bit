@@ -1,9 +1,9 @@
+use crate::{assert_index_eq, common};
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild};
 use fake::Fake;
 use fake::faker::lorem::en::{Word, Words};
 use predicates::prelude::predicate;
-use crate::{assert_index_eq, common};
 
 #[test]
 fn add_multiple_files_to_index_incrementally_successfully() -> Result<(), Box<dyn std::error::Error>>

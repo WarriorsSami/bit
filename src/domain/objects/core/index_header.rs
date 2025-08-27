@@ -1,10 +1,10 @@
-use std::io::Write;
+use crate::domain::objects::object::{Packable, Unpackable};
+use crate::domain::objects::{HEADER_SIZE, SIGNATURE, VERSION};
 use anyhow::anyhow;
 use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
 use derive_new::new;
-use crate::domain::objects::{HEADER_SIZE, SIGNATURE, VERSION};
-use crate::domain::objects::object::{Packable, Unpackable};
+use std::io::Write;
 
 #[derive(Debug, Clone, new)]
 pub struct IndexHeader {

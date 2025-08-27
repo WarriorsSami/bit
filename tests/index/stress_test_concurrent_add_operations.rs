@@ -1,9 +1,9 @@
+use crate::{assert_index_eq, common};
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild};
 use fake::Fake;
 use predicates::prelude::predicate;
 use tokio::time::{Duration, sleep};
-use crate::{assert_index_eq, common};
 
 #[tokio::test]
 async fn stress_test_concurrent_add_operations() -> Result<(), Box<dyn std::error::Error>> {
@@ -90,4 +90,3 @@ async fn stress_test_concurrent_add_operations() -> Result<(), Box<dyn std::erro
 
     Ok(())
 }
-

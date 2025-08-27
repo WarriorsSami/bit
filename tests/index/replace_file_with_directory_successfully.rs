@@ -1,9 +1,9 @@
+use crate::{assert_index_eq, common};
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild, PathCreateDir};
 use fake::Fake;
 use fake::faker::lorem::en::{Word, Words};
 use predicates::prelude::predicate;
-use crate::{assert_index_eq, common};
 
 #[test]
 fn replace_file_with_directory_successfully() -> Result<(), Box<dyn std::error::Error>> {

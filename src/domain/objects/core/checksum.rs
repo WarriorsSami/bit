@@ -1,10 +1,10 @@
-use std::io::{Read, Write};
-use std::ops::DerefMut;
+use crate::domain::objects::CHECKSUM_SIZE;
 use anyhow::anyhow;
 use bytes::Bytes;
 use file_guard::FileGuard;
 use sha1::{Digest, Sha1};
-use crate::domain::objects::CHECKSUM_SIZE;
+use std::io::{Read, Write};
+use std::ops::DerefMut;
 
 #[derive(Debug)]
 pub struct Checksum<'f> {

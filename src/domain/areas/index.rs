@@ -1,5 +1,5 @@
 use crate::domain::objects::checksum::Checksum;
-use crate::domain::objects::index_entry::{IndexEntry, ENTRY_BLOCK, ENTRY_MIN_SIZE};
+use crate::domain::objects::index_entry::{ENTRY_BLOCK, ENTRY_MIN_SIZE, IndexEntry};
 use crate::domain::objects::index_header::IndexHeader;
 use crate::domain::objects::object::{Packable, Unpackable};
 use crate::domain::objects::{HEADER_SIZE, SIGNATURE, VERSION};

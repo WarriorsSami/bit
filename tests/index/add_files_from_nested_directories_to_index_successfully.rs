@@ -1,14 +1,14 @@
+use crate::{assert_index_eq, common};
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild, PathCreateDir};
 use fake::Fake;
 use fake::faker::lorem::en::{Word, Words};
 use predicates::prelude::predicate;
-use crate::{assert_index_eq, common};
 
 // TODO: investigate whether dir entries should also be added to index (as git seems to do)
 #[test]
-fn add_files_from_nested_directories_to_index_successfully() -> Result<(), Box<dyn std::error::Error>>
-{
+fn add_files_from_nested_directories_to_index_successfully()
+-> Result<(), Box<dyn std::error::Error>> {
     common::redirect_temp_dir();
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("bit")?;

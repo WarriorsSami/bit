@@ -1,13 +1,13 @@
+use crate::{assert_index_eq, common};
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild, PathCreateDir};
 use fake::Fake;
 use fake::faker::lorem::en::{Word, Words};
 use predicates::prelude::predicate;
-use crate::{assert_index_eq, common};
 
 #[test]
 fn replace_directory_having_nested_children_with_file_successfully()
-    -> Result<(), Box<dyn std::error::Error>> {
+-> Result<(), Box<dyn std::error::Error>> {
     common::redirect_temp_dir();
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("bit")?;

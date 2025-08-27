@@ -1,12 +1,12 @@
+use crate::{assert_index_eq, common};
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild};
 use predicates::prelude::predicate;
 use tokio::time::Duration;
-use crate::{assert_index_eq, common};
 
 #[tokio::test]
 async fn concurrent_add_operations_maintain_index_consistency()
-    -> Result<(), Box<dyn std::error::Error>> {
+-> Result<(), Box<dyn std::error::Error>> {
     common::redirect_temp_dir();
     let dir = assert_fs::TempDir::new()?;
     let mut cmd = Command::cargo_bin("bit")?;
