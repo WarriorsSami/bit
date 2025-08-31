@@ -2,6 +2,7 @@ use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::index_entry::IndexEntry;
 use crate::domain::objects::object::Object;
+use anyhow::Context;
 use std::path::Path;
 
 impl Repository {
@@ -16,7 +17,9 @@ impl Repository {
         let paths = paths
             .iter()
             .map(|path| {
-                let absolute_path = Path::new(path).canonicalize()?;
+                let absolute_path = Path::new(path)
+                    .canonicalize()
+                    .with_context(|| format!("Failed to add file or directory: {}", path))?;
                 self.workspace().list_files(Some(absolute_path))
             })
             .collect::<Result<Vec<_>, _>>()?

@@ -2,12 +2,16 @@
 
 // TODO: refactor test cases to extract common setup code
 
+pub(crate) mod world;
+
 const TMPDIR: &str = "../playground";
 const DUMP_DIR: &str = "../playground/dump";
 
 pub fn redirect_temp_dir() {
-    unsafe {
-        std::env::set_var("TMPDIR", TMPDIR);
+    if let Ok(tmp_path) = std::env::var("TMP") {
+        unsafe {
+            std::env::set_var("TMPDIR", tmp_path);
+        }
     }
 
     // Ensure the TMPDIR exists

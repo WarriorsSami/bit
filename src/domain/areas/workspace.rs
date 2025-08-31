@@ -1,5 +1,5 @@
 use crate::domain::objects::index_entry::EntryMetadata;
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -67,13 +67,15 @@ impl Workspace {
     pub fn read_file(&self, file_path: &Path) -> anyhow::Result<String> {
         let file_path = self.path.join(file_path);
 
-        let content = std::fs::read_to_string(file_path)?;
+        let content = std::fs::read_to_string(&file_path)
+            .with_context(|| format!("Failed to read file: {:?}", file_path))?;
 
         Ok(content)
     }
 
     pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMetadata> {
-        let metadata = metadata(self.path.join(file_path))?;
+        let metadata = metadata(self.path.join(file_path))
+            .with_context(|| format!("Failed to stat file: {:?}", file_path))?;
 
         (file_path, metadata).try_into()
     }
