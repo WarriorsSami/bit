@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-// TODO: refactor test cases to extract common setup code
+// TODO: refactor test cases to extract common setup code (use Gherkin?)
 
 const TMPDIR: &str = "../playground";
 const DUMP_DIR: &str = "../playground/dump";
@@ -54,7 +54,7 @@ pub fn to_hexdump(data: &[u8]) -> String {
     result
 }
 
-// Macro to compare index contents with hexdump output on failure
+// Macro to compare add contents with hexdump output on failure
 #[macro_export]
 macro_rules! assert_index_eq {
     ($bit_content:expr, $git_content:expr) => {
@@ -66,7 +66,7 @@ macro_rules! assert_index_eq {
             pretty_assertions::assert_eq!(
                 bit_hexdump,
                 git_hexdump,
-                "\n=== INDEX CONTENTS DIFFER ===\nBit index ({} bytes) vs Git index ({} bytes)",
+                "\n=== INDEX CONTENTS DIFFER ===\nBit add ({} bytes) vs Git add ({} bytes)",
                 $bit_content.len(),
                 $git_content.len()
             );
@@ -81,7 +81,7 @@ macro_rules! assert_index_eq {
             pretty_assertions::assert_eq!(
                 bit_hexdump,
                 git_hexdump,
-                "\n=== INDEX CONTENTS DIFFER ===\n{}\nBit index ({} bytes) vs Git index ({} bytes)",
+                "\n=== INDEX CONTENTS DIFFER ===\n{}\nBit add ({} bytes) vs Git add ({} bytes)",
                 format_args!($($arg)*),
                 $bit_content.len(),
                 $git_content.len()

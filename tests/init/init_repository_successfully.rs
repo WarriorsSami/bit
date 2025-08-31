@@ -1,10 +1,9 @@
+use crate::common;
 use assert_cmd::Command;
 use predicates::prelude::predicate;
 
-mod common;
-
 #[test]
-fn new_repository_initiated_with_git_directory() -> Result<(), Box<dyn std::error::Error>> {
+fn init_repository_successfully() -> Result<(), Box<dyn std::error::Error>> {
     common::redirect_temp_dir();
     let dir = assert_fs::TempDir::new()?;
     let dir_absolute_path = dir.path().canonicalize()?.display().to_string();

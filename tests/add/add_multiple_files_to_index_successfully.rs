@@ -26,7 +26,7 @@ fn add_multiple_files_to_index_successfully() -> Result<(), Box<dyn std::error::
         file_path.write_str(&file_content)?;
     }
 
-    // Add the files to the index using bit
+    // Add the files to the add using bit
     let mut sut = Command::cargo_bin("bit")?;
 
     sut.current_dir(dir.path())
@@ -35,7 +35,7 @@ fn add_multiple_files_to_index_successfully() -> Result<(), Box<dyn std::error::
         .assert()
         .success();
 
-    // Store the index content
+    // Store the add content
     let bit_index_path = dir.child(".git/index");
     let bit_index_content = std::fs::read(bit_index_path.path())?;
 
@@ -45,7 +45,7 @@ fn add_multiple_files_to_index_successfully() -> Result<(), Box<dyn std::error::
     git_cmd.current_dir(dir.path()).arg("init");
     git_cmd.assert().success();
 
-    // Add the files to the index using git
+    // Add the files to the add using git
     let mut git_add_cmd = Command::new("git");
     git_add_cmd
         .current_dir(dir.path())
@@ -54,7 +54,7 @@ fn add_multiple_files_to_index_successfully() -> Result<(), Box<dyn std::error::
         .assert()
         .success();
 
-    // Compare the index content with the git index content
+    // Compare the add content with the git add content
     let git_index_path = dir.child(".git/index");
     let git_index_content = std::fs::read(git_index_path.path())?;
     assert_index_eq!(&bit_index_content, &git_index_content);

@@ -24,10 +24,10 @@ async fn concurrent_add_operations_maintain_index_consistency()
     bob_file.write_str("print('Hello from Bob')")?;
 
     // Simulate concurrent add operations using Tokio tasks
-    // This tests the index locking behavior where:
-    // 1. Alice starts add operation (reads current index)
-    // 2. Bob starts add operation (also reads same index state)
-    // 3. Alice completes first (acquires lock, writes index)
+    // This tests the add locking behavior where:
+    // 1. Alice starts add operation (reads current add)
+    // 2. Bob starts add operation (also reads same add state)
+    // 3. Alice completes first (acquires lock, writes add)
     // 4. Bob completes second (should see Alice's changes and merge properly)
 
     let dir_path = dir.path().to_path_buf();
@@ -62,7 +62,7 @@ async fn concurrent_add_operations_maintain_index_consistency()
     alice_result.expect("Alice's task should complete successfully");
     bob_result.expect("Bob's task should complete successfully");
 
-    // Read the final index state
+    // Read the final add state
     let bit_index_path = dir.child(".git/index");
     let bit_index_content = std::fs::read(bit_index_path.path())?;
 
@@ -89,13 +89,13 @@ async fn concurrent_add_operations_maintain_index_consistency()
         .assert()
         .success();
 
-    // Compare final index contents
+    // Compare final add contents
     let git_index_path = dir.child(".git/index");
     let git_index_content = std::fs::read(git_index_path.path())?;
     assert_index_eq!(
         &bit_index_content,
         &git_index_content,
-        "Concurrent add operations should result in consistent index with both files"
+        "Concurrent add operations should result in consistent add with both files"
     );
 
     Ok(())

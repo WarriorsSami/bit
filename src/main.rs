@@ -1,6 +1,13 @@
+#![allow(dead_code)]
+
+use crate::domain::areas::repository::Repository;
 use anyhow::Result;
-use bit::domain::areas::repository::Repository;
 use clap::{Parser, Subcommand};
+
+// TODO: improve error handling and messages
+
+mod commands;
+mod domain;
 
 #[derive(Parser)]
 #[command(

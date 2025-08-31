@@ -58,17 +58,17 @@ async fn stress_test_concurrent_add_operations() -> Result<(), Box<dyn std::erro
         result.expect("Add operation should complete successfully");
     }
 
-    // Verify final index state matches git
+    // Verify final add state matches git
     let bit_index_path = dir.child(".git/index");
     let bit_index_content = std::fs::read(bit_index_path.path())?;
 
-    // Create reference git index
+    // Create reference git add
     std::fs::remove_dir_all(dir.child(".git").path())?;
     let mut git_cmd = Command::new("git");
     git_cmd.current_dir(dir.path()).arg("init");
     git_cmd.assert().success();
 
-    // Add all files to git index
+    // Add all files to git add
     for file_name in &file_names {
         let mut git_add_cmd = Command::new("git");
         git_add_cmd
@@ -84,7 +84,7 @@ async fn stress_test_concurrent_add_operations() -> Result<(), Box<dyn std::erro
     assert_index_eq!(
         &bit_index_content,
         &git_index_content,
-        "Stress test: All {} files should be present in index after concurrent operations",
+        "Stress test: All {} files should be present in add after concurrent operations",
         file_count
     );
 
