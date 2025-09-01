@@ -90,6 +90,13 @@ enum Commands {
         #[arg(short, long, help = "The commit message")]
         message: String,
     },
+    #[command(
+        name = "status",
+        about = "Show the working tree status",
+        long_about = "This command shows the status of the working tree, \
+        including staged, unstaged, and untracked files."
+    )]
+    Status,
 }
 
 #[tokio::main]
@@ -135,6 +142,13 @@ async fn main() -> Result<()> {
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.commit(message.as_str()).await?
+        }
+        Commands::Status => {
+            let pwd = std::env::current_dir()?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.status().await?
         }
     }
 

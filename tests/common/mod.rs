@@ -2,6 +2,11 @@
 
 // TODO: refactor test cases to extract common setup code (use Gherkin?)
 
+pub mod command;
+pub mod file;
+
+use std::path::Path;
+
 const TMPDIR: &str = "../playground";
 const DUMP_DIR: &str = "../playground/dump";
 
@@ -11,7 +16,7 @@ pub fn redirect_temp_dir() {
     }
 
     // Ensure the TMPDIR exists
-    if !std::path::Path::new(TMPDIR).exists() {
+    if !Path::new(TMPDIR).exists() {
         std::fs::create_dir_all(TMPDIR).expect("Failed to create TMPDIR");
     }
 }

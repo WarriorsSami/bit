@@ -58,6 +58,10 @@ impl Index {
         reader.verify()
     }
 
+    pub fn is_tracked(&self, path: &Path) -> bool {
+        self.entries.contains_key(path) || self.children.contains_key(path)
+    }
+
     fn parse_header(&self, reader: &mut Checksum) -> anyhow::Result<u32> {
         let header_bytes = reader.read(HEADER_SIZE)?;
         let header = IndexHeader::deserialize(header_bytes)?;

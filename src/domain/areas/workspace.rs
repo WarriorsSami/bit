@@ -19,6 +19,47 @@ impl Workspace {
         &self.path
     }
 
+    pub fn list_dir(&self, dir_path: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
+        let dir_path = dir_path.unwrap_or_else(|| self.path.clone().into());
+
+        // Check if the dir_path exists
+        if !dir_path.exists() {
+            return Err(anyhow!("The specified path does not exist: {:?}", dir_path));
+        }
+
+        // TODO: remove code duplication
+        if dir_path.is_dir() {
+            Ok(std::fs::read_dir(&dir_path)?
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| {
+                    let path = entry.path();
+
+                    // Check if any component of the path is in IGNORED_PATHS
+                    let is_ignored = path.components().any(|component| {
+                        if let std::path::Component::Normal(name) = component {
+                            let name_str = name.to_string_lossy();
+                            IGNORED_PATHS.contains(&name_str.as_ref())
+                        } else {
+                            false
+                        }
+                    });
+
+                    if !is_ignored {
+                        Some(path.strip_prefix(self.path.as_ref()).ok()?.to_path_buf())
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>())
+        } else {
+            Err(anyhow!(
+                "The specified path is not a directory: {:?}",
+                dir_path
+            ))
+        }
+    }
+
+    // TODO: refactor to use iterator
     pub fn list_files(&self, root_file_path: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
         let root_file_path = root_file_path.unwrap_or_else(|| self.path.clone().into());
 
@@ -33,26 +74,8 @@ impl Workspace {
         if root_file_path.is_dir() {
             Ok(WalkDir::new(&root_file_path)
                 .into_iter()
-                .filter_map(|entry| {
-                    let entry = entry.ok()?;
-                    let path = entry.path();
-
-                    // Check if any component of the path is in IGNORED_PATHS
-                    let is_ignored = path.components().any(|component| {
-                        if let std::path::Component::Normal(name) = component {
-                            let name_str = name.to_string_lossy();
-                            IGNORED_PATHS.contains(&name_str.as_ref())
-                        } else {
-                            false
-                        }
-                    });
-
-                    if path.is_file() && !is_ignored {
-                        Some(path.strip_prefix(self.path.as_ref()).ok()?.to_path_buf())
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| self.filter_file(&entry))
                 .collect::<Vec<_>>())
         } else {
             Ok(vec![
@@ -61,6 +84,26 @@ impl Workspace {
                     .map(PathBuf::from)
                     .unwrap_or_default(),
             ])
+        }
+    }
+
+    fn filter_file(&self, entry: &walkdir::DirEntry) -> Option<PathBuf> {
+        let path = entry.path();
+
+        // Check if any component of the path is in IGNORED_PATHS
+        let is_ignored = path.components().any(|component| {
+            if let std::path::Component::Normal(name) = component {
+                let name_str = name.to_string_lossy();
+                IGNORED_PATHS.contains(&name_str.as_ref())
+            } else {
+                false
+            }
+        });
+
+        if path.is_file() && !is_ignored {
+            Some(path.strip_prefix(self.path.as_ref()).ok()?.to_path_buf())
+        } else {
+            None
         }
     }
 
