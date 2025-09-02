@@ -1,4 +1,6 @@
+mod do_not_list_empty_untracked_directories;
 mod list_files_as_untracked_if_they_are_not_in_the_index;
 mod list_untracked_directories_not_their_contents;
+mod list_untracked_directories_that_indirectly_contain_files;
 mod list_untracked_files_in_name_order;
 mod list_untracked_files_inside_tracked_directories;

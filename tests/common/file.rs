@@ -127,6 +127,11 @@ pub fn write_generated_directory(
     DirectorySpec::new(dir_path, descriptors)
 }
 
+pub fn create_directory(path: &Path) {
+    std::fs::create_dir_all(path)
+        .unwrap_or_else(|e| panic!("Failed to create directory {:?}: {}", path, e));
+}
+
 pub fn list_all_files_statuses(descriptor: &Descriptor) -> Vec<(PathBuf, String)> {
     let mut statuses = Vec::new();
 

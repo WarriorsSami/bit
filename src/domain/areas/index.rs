@@ -58,7 +58,7 @@ impl Index {
         reader.verify()
     }
 
-    pub fn is_tracked(&self, path: &Path) -> bool {
+    pub fn is_directly_tracked(&self, path: &Path) -> bool {
         self.entries.contains_key(path) || self.children.contains_key(path)
     }
 

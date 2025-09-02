@@ -19,7 +19,7 @@ impl Workspace {
         &self.path
     }
 
-    pub fn list_dir(&self, dir_path: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
+    pub fn list_dir(&self, dir_path: Option<&Path>) -> anyhow::Result<Vec<PathBuf>> {
         let dir_path = match dir_path {
             Some(p) => std::fs::canonicalize(p)?,
             None => self.path.clone().into(),
