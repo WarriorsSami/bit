@@ -2,7 +2,7 @@ use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::index_entry::IndexEntry;
 use crate::domain::objects::object::Object;
-use std::path::Path;
+use std::path::PathBuf;
 
 impl Repository {
     pub async fn add(&mut self, paths: &[String]) -> anyhow::Result<()> {
@@ -15,10 +15,7 @@ impl Repository {
         // Iterate over each provided file path and expand it if it's a directory
         let paths = paths
             .iter()
-            .map(|path| {
-                let absolute_path = Path::new(path).canonicalize()?;
-                self.workspace().list_files(Some(absolute_path))
-            })
+            .map(|path| self.workspace().list_files(Some(PathBuf::from(path))))
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten();

@@ -1,3 +1,4 @@
+use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -10,7 +11,8 @@ impl Repository {
 
         let mut untracked_files = BTreeSet::new();
 
-        self.scan_workspace(None, &mut untracked_files).await?;
+        self.scan_workspace(None, &mut untracked_files, &index)
+            .await?;
 
         untracked_files.iter().for_each(|file| {
             writeln!(self.writer(), "?? {}", file.display()).unwrap();
@@ -23,17 +25,14 @@ impl Repository {
         &self,
         prefix_path: Option<PathBuf>,
         untracked_files: &mut BTreeSet<PathBuf>,
+        index: &Index,
     ) -> anyhow::Result<()> {
-        let index = self.index();
-        let index = index.lock().await;
+        let files = self.workspace().list_dir(prefix_path)?;
 
-        let files = self.workspace().list_dir(prefix_path.clone())?;
-
-        println!("Scanning {:?}", prefix_path);
         for path in files.iter() {
-            println!("Found {:?}", path);
             if index.is_tracked(path) && path.is_dir() {
-                Box::pin(self.scan_workspace(Some(path.clone()), untracked_files)).await?;
+                Box::pin(self.scan_workspace(Some(path.to_path_buf()), untracked_files, index))
+                    .await?;
             } else if !index.is_tracked(path) {
                 // add the file separator if it's a directory
                 let path = if path.is_dir() {

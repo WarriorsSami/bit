@@ -1,5 +1,5 @@
 mod database;
-mod index;
+pub(crate) mod index;
 mod refs;
 pub mod repository;
 mod workspace;
