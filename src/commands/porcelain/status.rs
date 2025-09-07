@@ -1,6 +1,7 @@
 use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
-use std::collections::BTreeSet;
+use crate::domain::objects::index_entry::EntryMetadata;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 impl Repository {
@@ -9,10 +10,17 @@ impl Repository {
         let mut index = index.lock().await;
         index.rehydrate()?;
 
-        let mut untracked_files = BTreeSet::new();
+        let mut file_stats = BTreeMap::<PathBuf, EntryMetadata>::new();
+        let mut untracked_files = BTreeSet::<PathBuf>::new();
+        let mut changed_files = BTreeSet::<PathBuf>::new();
 
-        self.scan_workspace(None, &mut untracked_files, &index)
+        self.scan_workspace(None, &mut untracked_files, &mut file_stats, &index)
             .await?;
+        Self::detect_workspace_changes(&mut changed_files, &file_stats, &index);
+
+        changed_files.iter().for_each(|file| {
+            writeln!(self.writer(), " M {}", file.display()).unwrap();
+        });
 
         untracked_files.iter().for_each(|file| {
             writeln!(self.writer(), "?? {}", file.display()).unwrap();
@@ -25,6 +33,7 @@ impl Repository {
         &self,
         prefix_path: Option<&Path>,
         untracked_files: &mut BTreeSet<PathBuf>,
+        file_stats: &mut BTreeMap<PathBuf, EntryMetadata>,
         index: &Index,
     ) -> anyhow::Result<()> {
         let files = self.workspace().list_dir(prefix_path)?;
@@ -32,7 +41,11 @@ impl Repository {
         for path in files.iter() {
             if index.is_directly_tracked(path) {
                 if path.is_dir() {
-                    Box::pin(self.scan_workspace(Some(path), untracked_files, index)).await?;
+                    Box::pin(self.scan_workspace(Some(path), untracked_files, file_stats, index))
+                        .await?;
+                } else {
+                    let stat = self.workspace().stat_file(path)?;
+                    file_stats.insert(path.clone(), stat);
                 }
             } else if !self.is_indirectly_tracked(path, index)? {
                 // add the file separator if it's a directory
@@ -48,6 +61,20 @@ impl Repository {
         }
 
         Ok(())
+    }
+
+    fn detect_workspace_changes(
+        changed_files: &mut BTreeSet<PathBuf>,
+        file_stats: &BTreeMap<PathBuf, EntryMetadata>,
+        index: &Index,
+    ) {
+        index.entries().for_each(|entry| {
+            if let Some(stat) = file_stats.get(&entry.name)
+                && !entry.stat_match(stat)
+            {
+                changed_files.insert(entry.name.clone());
+            }
+        });
     }
 
     fn is_indirectly_tracked(&self, path: &Path, index: &Index) -> anyhow::Result<bool> {

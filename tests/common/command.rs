@@ -1,3 +1,4 @@
+use crate::common::file::{FileSpec, write_file};
 use crate::common::redirect_temp_dir;
 use assert_cmd::Command;
 use assert_fs::TempDir;
@@ -9,6 +10,38 @@ use std::path::Path;
 pub fn repository_dir() -> TempDir {
     redirect_temp_dir();
     TempDir::new().expect("Failed to create temp dir")
+}
+
+#[fixture]
+pub fn init_repository_dir(repository_dir: TempDir) -> TempDir {
+    run_bit_command(repository_dir.path(), &["init"])
+        .assert()
+        .success();
+
+    let file1 = FileSpec::new(repository_dir.path().join("1.txt"), "one".to_string());
+    write_file(file1);
+
+    let file2 = FileSpec::new(
+        repository_dir.path().join("a").join("2.txt"),
+        "two".to_string(),
+    );
+    write_file(file2);
+
+    let file3 = FileSpec::new(
+        repository_dir.path().join("a").join("b").join("3.txt"),
+        "three".to_string(),
+    );
+    write_file(file3);
+
+    run_bit_command(repository_dir.path(), &["add", "."])
+        .assert()
+        .success();
+
+    bit_commit(repository_dir.path(), "Initial commit")
+        .assert()
+        .success();
+
+    repository_dir
 }
 
 pub fn run_bit_command(dir: &Path, args: &[&str]) -> Command {

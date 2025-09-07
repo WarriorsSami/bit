@@ -44,6 +44,10 @@ impl IndexEntry {
 
         Ok(dirs)
     }
+
+    pub fn stat_match(&self, other: &EntryMetadata) -> bool {
+        self.metadata.size == 0 || self.metadata.size == other.size
+    }
 }
 
 impl PartialEq for IndexEntry {
