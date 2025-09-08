@@ -164,3 +164,14 @@ pub fn make_file_executable(path: &Path) {
             .unwrap_or_else(|e| panic!("Failed to set permissions for {:?}: {}", path, e));
     }
 }
+
+pub fn touch_file(path: &Path) {
+    if path.exists() {
+        let now = filetime::FileTime::now();
+        filetime::set_file_times(path, now, now)
+            .unwrap_or_else(|e| panic!("Failed to touch file {:?}: {}", path, e));
+    } else {
+        std::fs::File::create(path)
+            .unwrap_or_else(|e| panic!("Failed to create file {:?}: {}", path, e));
+    }
+}

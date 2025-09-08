@@ -20,6 +20,7 @@ pub trait Object: Packable {
 
     fn display(&self) -> String;
 
+    // TODO: Cache the object serialization and ID to avoid recomputing them
     fn object_id(&self) -> Result<ObjectId> {
         let content = self.serialize()?;
         let mut hasher = Sha1::new();

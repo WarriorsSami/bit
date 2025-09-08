@@ -7,3 +7,4 @@ mod list_untracked_files_inside_tracked_directories;
 mod print_nothing_when_no_files_are_changed;
 mod report_files_with_changed_modes;
 mod report_files_with_modified_contents;
+mod report_modified_files_with_unchanged_size;

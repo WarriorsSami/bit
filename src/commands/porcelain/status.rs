@@ -1,6 +1,8 @@
 use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
-use crate::domain::objects::index_entry::EntryMetadata;
+use crate::domain::objects::blob::Blob;
+use crate::domain::objects::index_entry::{EntryMetadata, IndexEntry};
+use crate::domain::objects::object::Object;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -18,7 +20,7 @@ impl Repository {
 
         self.scan_workspace(None, &mut untracked_files, &mut file_stats, &index)
             .await?;
-        let changed_files = Self::detect_workspace_changes(&file_stats, &index);
+        let changed_files = self.detect_workspace_changes(&file_stats, &index);
 
         changed_files.iter().for_each(|file| {
             writeln!(self.writer(), " M {}", file.display()).unwrap();
@@ -66,6 +68,7 @@ impl Repository {
     }
 
     fn detect_workspace_changes(
+        &self,
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         index: &Index,
     ) -> BTreeSet<PathBuf> {
@@ -74,11 +77,25 @@ impl Repository {
             .filter_map(|entry| file_stats.get(&entry.name).map(|stat| (entry, stat)))
             .filter_map(|(index_entry, workspace_stat)| {
                 match index_entry.stat_match(workspace_stat) {
-                    true => None,
+                    true => self.is_content_changed(index_entry).ok().map(|changed| {
+                        if changed {
+                            Some(index_entry.name.clone())
+                        } else {
+                            None
+                        }
+                    })?,
                     false => Some(index_entry.name.clone()),
                 }
             })
             .collect()
+    }
+
+    fn is_content_changed(&self, index_entry: &IndexEntry) -> anyhow::Result<bool> {
+        let data = self.workspace().read_file(&index_entry.name)?;
+        let blob = Blob::new(data.as_str(), Default::default());
+        let oid = blob.object_id()?;
+
+        Ok(oid != index_entry.oid)
     }
 
     fn is_indirectly_tracked(&self, path: &Path, index: &Index) -> anyhow::Result<bool> {
