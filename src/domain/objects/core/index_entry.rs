@@ -46,7 +46,8 @@ impl IndexEntry {
     }
 
     pub fn stat_match(&self, other: &EntryMetadata) -> bool {
-        self.metadata.size == 0 || self.metadata.size == other.size
+        (self.metadata.size == 0 || self.metadata.size == other.size)
+            && self.metadata.mode == other.mode
     }
 }
 

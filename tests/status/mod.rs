@@ -5,4 +5,5 @@ mod list_untracked_directories_that_indirectly_contain_files;
 mod list_untracked_files_in_name_order;
 mod list_untracked_files_inside_tracked_directories;
 mod print_nothing_when_no_files_are_changed;
+mod report_files_with_changed_modes;
 mod report_files_with_modified_contents;

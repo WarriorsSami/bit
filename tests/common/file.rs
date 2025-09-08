@@ -151,3 +151,16 @@ pub fn list_all_files_statuses(descriptor: &Descriptor) -> Vec<(PathBuf, String)
 
     statuses
 }
+
+pub fn make_file_executable(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(path)
+            .unwrap_or_else(|e| panic!("Failed to get metadata for {:?}: {}", path, e))
+            .permissions();
+        perms.set_mode(0o755); // rwxr-xr-x
+        std::fs::set_permissions(path, perms)
+            .unwrap_or_else(|e| panic!("Failed to set permissions for {:?}: {}", path, e));
+    }
+}
