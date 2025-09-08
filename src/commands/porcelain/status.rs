@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 // Terminology:
 // - untracked files: files that are not tracked by the index
 // - changed/modified files: files that are tracked by the index but have changes in the workspace
+// - deleted files: files that are tracked by the index but have been deleted from the workspace
 impl Repository {
     pub async fn status(&mut self) -> anyhow::Result<()> {
         let index = self.index();
@@ -24,8 +25,8 @@ impl Repository {
 
         index.write_updates()?;
 
-        changed_files.iter().for_each(|file| {
-            writeln!(self.writer(), " M {}", file.display()).unwrap();
+        changed_files.iter().for_each(|(file, status)| {
+            writeln!(self.writer(), " {} {}", status, file.display()).unwrap();
         });
 
         untracked_files.iter().for_each(|file| {
@@ -73,13 +74,26 @@ impl Repository {
         &self,
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         index: &mut Index,
-    ) -> BTreeSet<PathBuf> {
+    ) -> BTreeMap<PathBuf, FileStatus> {
+        let mut changed_files = BTreeMap::<PathBuf, BTreeSet<FileStatus>>::new();
+
         // TODO: optimize by avoiding cloning all entries
         let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
 
-        index_entries
+        let modified_files = index_entries
             .into_iter()
-            .filter_map(|entry| file_stats.get(&entry.name).map(|stat| (entry, stat)))
+            .filter_map(|entry| {
+                if let Some(stat) = file_stats.get(&entry.name) {
+                    Some((entry, stat))
+                } else {
+                    // file deleted
+                    changed_files
+                        .entry(entry.name.clone())
+                        .or_default()
+                        .insert(FileStatus::Deleted);
+                    None
+                }
+            })
             .filter_map(|(index_entry, workspace_stat)| {
                 match index_entry.stat_match(workspace_stat) {
                     true if index_entry.times_match(workspace_stat) => None,
@@ -94,7 +108,16 @@ impl Repository {
                     false => Some(index_entry.name.clone()),
                 }
             })
-            .collect()
+            .collect::<Vec<_>>();
+
+        for path in modified_files {
+            changed_files
+                .entry(path)
+                .or_default()
+                .insert(FileStatus::Modified);
+        }
+
+        Self::coalesce_file_statuses(&changed_files)
     }
 
     fn is_content_changed(&self, index_entry: &IndexEntry) -> anyhow::Result<bool> {
@@ -122,5 +145,45 @@ impl Repository {
         } else {
             Ok(paths.any(|p| self.is_indirectly_tracked(p, index).unwrap_or(false)))
         }
+    }
+
+    fn coalesce_file_statuses(
+        file_statuses: &BTreeMap<PathBuf, BTreeSet<FileStatus>>,
+    ) -> BTreeMap<PathBuf, FileStatus> {
+        let mut coalesced_statuses = BTreeMap::<PathBuf, FileStatus>::new();
+
+        for (file, statuses) in file_statuses {
+            if statuses.contains(&FileStatus::Deleted) {
+                coalesced_statuses.insert(file.clone(), FileStatus::Deleted);
+            }
+
+            if statuses.contains(&FileStatus::Modified) {
+                coalesced_statuses.insert(file.clone(), FileStatus::Modified);
+            }
+        }
+
+        coalesced_statuses
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum FileStatus {
+    Modified,
+    Deleted,
+}
+
+impl From<&FileStatus> for &str {
+    fn from(status: &FileStatus) -> Self {
+        match status {
+            FileStatus::Modified => "M",
+            FileStatus::Deleted => "D",
+        }
+    }
+}
+
+impl std::fmt::Display for FileStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let status_str: &str = self.into();
+        write!(f, "{}", status_str)
     }
 }

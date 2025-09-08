@@ -175,3 +175,13 @@ pub fn touch_file(path: &Path) {
             .unwrap_or_else(|e| panic!("Failed to create file {:?}: {}", path, e));
     }
 }
+
+pub fn delete_path(path: &Path) {
+    if path.is_dir() {
+        std::fs::remove_dir_all(path)
+            .unwrap_or_else(|e| panic!("Failed to remove directory {:?}: {}", path, e));
+    } else if path.is_file() {
+        std::fs::remove_file(path)
+            .unwrap_or_else(|e| panic!("Failed to remove file {:?}: {}", path, e));
+    }
+}

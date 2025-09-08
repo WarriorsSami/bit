@@ -6,6 +6,8 @@ mod list_untracked_files_in_name_order;
 mod list_untracked_files_inside_tracked_directories;
 mod print_nothing_if_a_file_is_touched;
 mod print_nothing_when_no_files_are_changed;
+mod report_deleted_files;
+mod report_files_in_deleted_directories;
 mod report_files_with_changed_modes;
 mod report_files_with_modified_contents;
 mod report_modified_files_with_unchanged_size;
