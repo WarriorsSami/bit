@@ -4,6 +4,9 @@ use crate::domain::objects::index_entry::EntryMetadata;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+// Terminology:
+// - untracked files: files that are not tracked by the index
+// - changed/modified files: files that are tracked by the index but have changes in the workspace
 impl Repository {
     pub async fn status(&mut self) -> anyhow::Result<()> {
         let index = self.index();
@@ -12,11 +15,10 @@ impl Repository {
 
         let mut file_stats = BTreeMap::<PathBuf, EntryMetadata>::new();
         let mut untracked_files = BTreeSet::<PathBuf>::new();
-        let mut changed_files = BTreeSet::<PathBuf>::new();
 
         self.scan_workspace(None, &mut untracked_files, &mut file_stats, &index)
             .await?;
-        Self::detect_workspace_changes(&mut changed_files, &file_stats, &index);
+        let changed_files = Self::detect_workspace_changes(&file_stats, &index);
 
         changed_files.iter().for_each(|file| {
             writeln!(self.writer(), " M {}", file.display()).unwrap();
@@ -64,17 +66,19 @@ impl Repository {
     }
 
     fn detect_workspace_changes(
-        changed_files: &mut BTreeSet<PathBuf>,
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         index: &Index,
-    ) {
-        index.entries().for_each(|entry| {
-            if let Some(stat) = file_stats.get(&entry.name)
-                && !entry.stat_match(stat)
-            {
-                changed_files.insert(entry.name.clone());
-            }
-        });
+    ) -> BTreeSet<PathBuf> {
+        index
+            .entries()
+            .filter_map(|entry| file_stats.get(&entry.name).map(|stat| (entry, stat)))
+            .filter_map(|(index_entry, workspace_stat)| {
+                match index_entry.stat_match(workspace_stat) {
+                    true => None,
+                    false => Some(index_entry.name.clone()),
+                }
+            })
+            .collect()
     }
 
     fn is_indirectly_tracked(&self, path: &Path, index: &Index) -> anyhow::Result<bool> {
