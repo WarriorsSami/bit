@@ -15,6 +15,7 @@ const MAX_PATH_SIZE: usize = 4095;
 pub const ENTRY_BLOCK: usize = 8;
 pub const ENTRY_MIN_SIZE: usize = 64; // Minimum size of an index entry in bytes
 
+// TODO: Restrict access to certain fields
 #[derive(Debug, Clone, Default, new)]
 pub struct IndexEntry {
     pub name: PathBuf,
@@ -48,6 +49,13 @@ impl IndexEntry {
     pub fn stat_match(&self, other: &EntryMetadata) -> bool {
         (self.metadata.size == 0 || self.metadata.size == other.size)
             && self.metadata.mode == other.mode
+    }
+
+    pub fn times_match(&self, other: &EntryMetadata) -> bool {
+        self.metadata.ctime == other.ctime
+            && self.metadata.ctime_nsec == other.ctime_nsec
+            && self.metadata.mtime == other.mtime
+            && self.metadata.mtime_nsec == other.mtime_nsec
     }
 }
 

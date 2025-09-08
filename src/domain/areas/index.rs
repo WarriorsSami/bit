@@ -1,5 +1,5 @@
 use crate::domain::objects::checksum::Checksum;
-use crate::domain::objects::index_entry::{ENTRY_BLOCK, ENTRY_MIN_SIZE, IndexEntry};
+use crate::domain::objects::index_entry::{ENTRY_BLOCK, ENTRY_MIN_SIZE, EntryMetadata, IndexEntry};
 use crate::domain::objects::index_header::IndexHeader;
 use crate::domain::objects::object::{Packable, Unpackable};
 use crate::domain::objects::{HEADER_SIZE, SIGNATURE, VERSION};
@@ -197,6 +197,14 @@ impl Index {
         self.changed = false;
 
         Ok(())
+    }
+
+    pub fn update_entry_stat(&mut self, entry: &IndexEntry, stat: EntryMetadata) {
+        let entry_key = entry.name.clone().into_boxed_path();
+        if let Some(existing_entry) = self.entries.get_mut(&entry_key) {
+            existing_entry.metadata = stat;
+            self.changed = true;
+        }
     }
 
     pub fn entries(&self) -> impl Iterator<Item = &IndexEntry> {

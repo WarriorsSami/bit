@@ -20,7 +20,9 @@ impl Repository {
 
         self.scan_workspace(None, &mut untracked_files, &mut file_stats, &index)
             .await?;
-        let changed_files = self.detect_workspace_changes(&file_stats, &index);
+        let changed_files = self.detect_workspace_changes(&file_stats, &mut index);
+
+        index.write_updates()?;
 
         changed_files.iter().for_each(|file| {
             writeln!(self.writer(), " M {}", file.display()).unwrap();
@@ -70,17 +72,22 @@ impl Repository {
     fn detect_workspace_changes(
         &self,
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
-        index: &Index,
+        index: &mut Index,
     ) -> BTreeSet<PathBuf> {
-        index
-            .entries()
+        // TODO: optimize by avoiding cloning all entries
+        let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
+
+        index_entries
+            .into_iter()
             .filter_map(|entry| file_stats.get(&entry.name).map(|stat| (entry, stat)))
             .filter_map(|(index_entry, workspace_stat)| {
                 match index_entry.stat_match(workspace_stat) {
-                    true => self.is_content_changed(index_entry).ok().map(|changed| {
+                    true if index_entry.times_match(workspace_stat) => None,
+                    true => self.is_content_changed(&index_entry).ok().map(|changed| {
                         if changed {
                             Some(index_entry.name.clone())
                         } else {
+                            index.update_entry_stat(&index_entry, workspace_stat.clone());
                             None
                         }
                     })?,
