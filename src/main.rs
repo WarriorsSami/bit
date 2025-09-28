@@ -45,16 +45,6 @@ enum Commands {
         path: Option<String>,
     },
     #[command(
-        name = "cat-file",
-        about = "Print the content of an object",
-        long_about = "This command prints the content of an object in the repository. \
-        It requires the SHA of the object to be specified."
-    )]
-    CatFile {
-        #[arg(short = 'p', long, help = "The object SHA to print")]
-        sha: String,
-    },
-    #[command(
         name = "hash-object",
         about = "Hash an object and optionally write it to the object database",
         long_about = "This command hashes an object file and can write it to the object database. \
@@ -70,6 +60,18 @@ enum Commands {
         write: bool,
         #[arg(index = 1)]
         file: String,
+    },
+    #[command(
+        name = "ls-tree",
+        about = "List the contents of a tree object",
+        long_about = "This command lists the contents of a tree object in the repository. \
+        It requires the SHA of a tree to be specified."
+    )]
+    LsTree {
+        #[arg(short = 'r', long, help = "Recursively list the tree")]
+        recursive: bool,
+        #[arg(index = 1, help = "The tree SHA to list")]
+        sha: String,
     },
     #[command(
         name = "add",
@@ -115,19 +117,19 @@ async fn main() -> Result<()> {
 
             repository.init().await?
         }
-        Commands::CatFile { sha } => {
-            let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
-
-            repository.cat_file(sha)?
-        }
         Commands::HashObject { write, file } => {
             let pwd = std::env::current_dir()?;
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.hash_object(file, *write)?
+        }
+        Commands::LsTree { recursive, sha } => {
+            let pwd = std::env::current_dir()?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.ls_tree(sha, *recursive).await?
         }
         Commands::Add { paths } => {
             let pwd = std::env::current_dir()?;

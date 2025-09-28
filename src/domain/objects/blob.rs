@@ -1,38 +1,24 @@
 use crate::domain::objects::core::entry_mode::FileMode;
 use crate::domain::objects::core::object::{Object, Packable};
 use crate::domain::objects::core::object_type::ObjectType;
+use crate::domain::objects::object::Unpackable;
 use bytes::Bytes;
 use derive_new::new;
-use std::io::Write;
+use std::io::{BufRead, Write};
 
 #[derive(Debug, Clone, new)]
-pub struct Blob<'blob> {
-    content: &'blob str,
+pub struct Blob {
+    content: String,
     stat: FileMode,
 }
 
-impl Blob<'_> {
+impl Blob {
     pub fn mode(&self) -> &FileMode {
         &self.stat
     }
 }
 
-// TODO: Convert from Bytes instead of &str
-impl<'blob> TryFrom<&'blob str> for Blob<'blob> {
-    type Error = anyhow::Error;
-
-    fn try_from(data: &'blob str) -> anyhow::Result<Self> {
-        let parts = data.splitn(2, '\0').collect::<Vec<&str>>();
-
-        if parts.len() != 2 {
-            return Err(anyhow::anyhow!("Invalid blob file"));
-        }
-
-        Ok(Self::new(parts[1], Default::default()))
-    }
-}
-
-impl Packable for Blob<'_> {
+impl Packable for Blob {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let mut content_bytes = Vec::new();
         content_bytes.write_all(self.content.as_bytes())?;
@@ -46,7 +32,19 @@ impl Packable for Blob<'_> {
     }
 }
 
-impl Object for Blob<'_> {
+impl Unpackable for Blob {
+    fn deserialize(reader: impl BufRead) -> anyhow::Result<Self> {
+        // the header has already been read
+        let content = reader
+            .bytes()
+            .collect::<Result<Vec<u8>, std::io::Error>>()?;
+
+        let content = String::from_utf8(content)?;
+        Ok(Self::new(content, Default::default()))
+    }
+}
+
+impl Object for Blob {
     fn object_type(&self) -> ObjectType {
         ObjectType::Blob
     }

@@ -7,7 +7,7 @@ use derive_new::new;
 use is_executable::IsExecutable;
 use std::cmp::min;
 use std::fs::Metadata;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{Path, PathBuf};
 
@@ -144,7 +144,11 @@ impl Packable for IndexEntry {
 }
 
 impl Unpackable for IndexEntry {
-    fn deserialize(bytes: Bytes) -> anyhow::Result<Self> {
+    fn deserialize(reader: impl BufRead) -> anyhow::Result<Self> {
+        let bytes = reader
+            .bytes()
+            .collect::<Result<Vec<u8>, std::io::Error>>()?;
+
         if bytes.len() < ENTRY_MIN_SIZE {
             return Err(anyhow::anyhow!("Invalid index entry size"));
         }

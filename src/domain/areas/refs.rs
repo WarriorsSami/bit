@@ -24,6 +24,7 @@ impl Refs {
         Ok(())
     }
 
+    // TODO: use Ref/ObjectId instead of String
     pub fn read_head(&self) -> Option<String> {
         // read HEAD file
         let head = std::fs::read_to_string(self.head_path()).ok()?;

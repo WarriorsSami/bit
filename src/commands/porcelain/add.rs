@@ -24,7 +24,7 @@ impl Repository {
             let data = self.workspace().read_file(&path)?;
             let stat = self.workspace().stat_file(&path)?;
 
-            let blob = Blob::new(data.as_str(), stat.clone().mode.try_into()?);
+            let blob = Blob::new(data, stat.clone().mode.try_into()?);
             let blob_id = blob.object_id()?;
 
             self.database().store(blob)?;

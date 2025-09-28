@@ -4,7 +4,7 @@ use anyhow::anyhow;
 use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
 use derive_new::new;
-use std::io::Write;
+use std::io::{BufRead, Write};
 
 #[derive(Debug, Clone, new)]
 pub struct IndexHeader {
@@ -36,7 +36,11 @@ impl Packable for IndexHeader {
 }
 
 impl Unpackable for IndexHeader {
-    fn deserialize(bytes: Bytes) -> anyhow::Result<Self> {
+    fn deserialize(reader: impl BufRead) -> anyhow::Result<Self> {
+        let bytes = reader
+            .bytes()
+            .collect::<Result<Vec<u8>, std::io::Error>>()?;
+
         if bytes.len() < HEADER_SIZE {
             return Err(anyhow!("Invalid header size"));
         }

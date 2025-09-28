@@ -26,7 +26,7 @@ impl Repository {
         let author = Author::load_from_env()?;
         let message = message.trim().to_string();
 
-        let commit = Commit::new(parent.as_deref(), tree_id, author, message);
+        let commit = Commit::new(parent, tree_id, author, message);
         let commit_id = commit.object_id()?;
         self.database().store(commit.clone())?;
         self.refs().update_head(commit_id.clone())?;

@@ -122,7 +122,7 @@ impl Repository {
 
     fn is_content_changed(&self, index_entry: &IndexEntry) -> anyhow::Result<bool> {
         let data = self.workspace().read_file(&index_entry.name)?;
-        let blob = Blob::new(data.as_str(), Default::default());
+        let blob = Blob::new(data, Default::default());
         let oid = blob.object_id()?;
 
         Ok(oid != index_entry.oid)

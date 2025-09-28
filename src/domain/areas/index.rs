@@ -64,7 +64,8 @@ impl Index {
 
     fn parse_header(&self, reader: &mut Checksum) -> anyhow::Result<u32> {
         let header_bytes = reader.read(HEADER_SIZE)?;
-        let header = IndexHeader::deserialize(header_bytes)?;
+        let header_reader = std::io::Cursor::new(header_bytes.clone());
+        let header = IndexHeader::deserialize(header_reader)?;
 
         if header.marker != SIGNATURE {
             return Err(anyhow!("Invalid index file signature"));
@@ -90,7 +91,8 @@ impl Index {
             }
 
             let entry_bytes = Bytes::from(entry_bytes);
-            let entry = IndexEntry::deserialize(entry_bytes)?;
+            let entry_reader = std::io::Cursor::new(entry_bytes.clone());
+            let entry = IndexEntry::deserialize(entry_reader)?;
 
             self.store_entry(&entry)?;
         }

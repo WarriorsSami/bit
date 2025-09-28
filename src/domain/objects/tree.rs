@@ -1,14 +1,16 @@
+use crate::domain::objects::core::database_entry::DatabaseEntry;
 use crate::domain::objects::core::entry_mode::EntryMode;
-use crate::domain::objects::core::index_entry::{EntryMetadata, IndexEntry};
+use crate::domain::objects::core::index_entry::IndexEntry;
 use crate::domain::objects::core::object::{Object, Packable};
 use crate::domain::objects::core::object_id::ObjectId;
 use crate::domain::objects::core::object_type::ObjectType;
+use crate::domain::objects::object::Unpackable;
 use anyhow::Context;
 use bytes::Bytes;
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::{BufRead, Write};
 use std::marker::PhantomData;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 #[derive(Debug, Clone)]
 enum TreeEntry<'e> {
@@ -40,9 +42,11 @@ impl TreeEntry<'_> {
     }
 }
 
+// TODO: Ponder whether to implement ReadableTree and WritableTree for better separation of concerns
 #[derive(Debug, Clone, Default)]
 pub struct Tree<'tree> {
-    entries: BTreeMap<String, TreeEntry<'tree>>,
+    readable_entries: BTreeMap<String, DatabaseEntry>,
+    writeable_entries: BTreeMap<String, TreeEntry<'tree>>,
     _marker: PhantomData<&'tree ()>,
 }
 
@@ -62,7 +66,7 @@ impl<'tree> Tree<'tree> {
     where
         F: Fn(&Tree<'tree>) -> anyhow::Result<()>,
     {
-        for entry in &self.entries {
+        for entry in &self.writeable_entries {
             if let TreeEntry::Directory(tree) = entry.1 {
                 tree.traverse(func)?;
             }
@@ -74,7 +78,7 @@ impl<'tree> Tree<'tree> {
 
     fn add_entry(&mut self, parents: Vec<&Path>, entry: &IndexEntry) -> anyhow::Result<()> {
         if parents.is_empty() {
-            self.entries.insert(
+            self.writeable_entries.insert(
                 entry.basename()?.to_string(),
                 TreeEntry::File(entry.clone()),
             );
@@ -85,14 +89,14 @@ impl<'tree> Tree<'tree> {
                 .context("Invalid parent")?;
             // TODO: ensure directory names always end with '/'
             let parent = format!("{}/", parent);
-            let tree = match self.entries.get_mut(&parent) {
+            let tree = match self.writeable_entries.get_mut(&parent) {
                 Some(TreeEntry::Directory(tree)) => tree,
                 _ => {
                     let tree = Self::default();
-                    self.entries
+                    self.writeable_entries
                         .insert(parent.to_string(), TreeEntry::Directory(tree.clone()));
 
-                    match self.entries.get_mut(&parent) {
+                    match self.writeable_entries.get_mut(&parent) {
                         Some(TreeEntry::Directory(tree)) => tree,
                         _ => unreachable!(),
                     }
@@ -103,68 +107,20 @@ impl<'tree> Tree<'tree> {
 
         Ok(())
     }
-}
 
-// TODO: Convert from Bytes instead of &str
-impl<'tree> TryFrom<&'tree str> for Tree<'tree> {
-    type Error = anyhow::Error;
+    pub fn entries(&self) -> impl Iterator<Item = (&String, &DatabaseEntry)> {
+        self.readable_entries.iter()
+    }
 
-    fn try_from(data: &'tree str) -> anyhow::Result<Self> {
-        let entries = data
-            .split("\0")
-            .nth(1)
-            .context("Invalid tree object: missing entries")?
-            .split("\n")
-            .filter(|line| !line.is_empty())
-            .map(|line| {
-                let mut parts = line.split_whitespace();
-                let mode: EntryMode = parts
-                    .next()
-                    .context("Invalid tree object: missing mode")?
-                    .try_into()?;
-                let object_type: ObjectType = parts
-                    .next()
-                    .context("Invalid tree object: missing type")?
-                    .try_into()?;
-                let oid = ObjectId::try_parse(String::from(
-                    parts.next().context("Invalid tree object: missing id")?,
-                ))?;
-                let path = parts.next().context("Invalid tree object: missing path")?;
-                let metadata = EntryMetadata {
-                    mode,
-                    ..Default::default()
-                };
-
-                Ok((
-                    path.to_string(),
-                    match object_type {
-                        ObjectType::Blob => TreeEntry::File(IndexEntry {
-                            name: PathBuf::from(path),
-                            oid,
-                            metadata,
-                        }),
-                        ObjectType::Tree => TreeEntry::LazyDirectory(IndexEntry {
-                            name: PathBuf::from(path),
-                            oid,
-                            metadata,
-                        }),
-                        _ => unreachable!(),
-                    },
-                ))
-            })
-            .collect::<anyhow::Result<BTreeMap<String, TreeEntry<'tree>>>>()?;
-
-        Ok(Self {
-            entries,
-            _marker: Default::default(),
-        })
+    pub fn into_entries(self) -> impl Iterator<Item = (String, DatabaseEntry)> {
+        self.readable_entries.into_iter()
     }
 }
 
 impl Packable for Tree<'_> {
     fn serialize(&self) -> anyhow::Result<Bytes> {
         let content_bytes: Bytes = self
-            .entries
+            .writeable_entries
             .iter()
             .map(|(name, tree_entry)| {
                 let mut entry_bytes = Vec::new();
@@ -193,13 +149,62 @@ impl Packable for Tree<'_> {
     }
 }
 
+impl Unpackable for Tree<'_> {
+    fn deserialize(reader: impl BufRead) -> anyhow::Result<Self> {
+        let mut entries = BTreeMap::new();
+        let mut reader = reader;
+
+        // Reuse scratch buffers to reduce allocs
+        let mut mode_bytes = Vec::new();
+        let mut name_bytes = Vec::new();
+
+        loop {
+            mode_bytes.clear();
+            // Read "mode " (space-delimited)
+            let n = reader.read_until(b' ', &mut mode_bytes)?;
+            if n == 0 {
+                break; // clean EOF: no more entries
+            }
+            // Must end with ' ' or it's malformed
+            if *mode_bytes.last().unwrap() != b' ' {
+                return Err(anyhow::anyhow!("unexpected EOF in mode"));
+            }
+            mode_bytes.pop(); // drop the space
+
+            let mode_str = std::str::from_utf8(&mode_bytes)?;
+            let mode = EntryMode::from_octal_str(mode_str)?; // parse without extra String
+
+            // Read "name\0"
+            name_bytes.clear();
+            let n = reader.read_until(b'\0', &mut name_bytes)?;
+            if n == 0 || *name_bytes.last().unwrap() != b'\0' {
+                return Err(anyhow::anyhow!("unexpected EOF in name"));
+            }
+            name_bytes.pop(); // drop NUL
+            let name = std::str::from_utf8(&name_bytes)?.to_owned();
+
+            // Read object id
+            let oid =
+                ObjectId::read_h40_from(&mut reader).context("unexpected EOF in object id")?;
+
+            entries.insert(name, DatabaseEntry::new(oid, mode));
+        }
+
+        Ok(Tree {
+            readable_entries: entries,
+            writeable_entries: Default::default(),
+            _marker: Default::default(),
+        })
+    }
+}
+
 impl Object for Tree<'_> {
     fn object_type(&self) -> ObjectType {
         ObjectType::Tree
     }
 
     fn display(&self) -> String {
-        self.entries
+        self.writeable_entries
             .iter()
             .map(|(name, tree_entry)| {
                 let name = name.trim_end_matches('/'); // Remove trailing '/' for directories

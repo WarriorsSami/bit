@@ -1,3 +1,6 @@
+use std::io::BufRead;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ObjectType {
     Blob,
     Tree,
@@ -11,6 +14,20 @@ impl ObjectType {
             ObjectType::Tree => "tree",
             ObjectType::Commit => "commit",
         }
+    }
+
+    pub fn parse_object_type(data_reader: &mut impl BufRead) -> anyhow::Result<ObjectType> {
+        let mut object_type = Vec::new();
+        data_reader.read_until(b' ', &mut object_type)?;
+
+        let object_type = String::from_utf8(object_type)?;
+        let object_type = object_type.trim();
+
+        // skip the size part
+        let mut size = Vec::new();
+        data_reader.read_until(b'\0', &mut size)?;
+
+        ObjectType::try_from(object_type)
     }
 }
 

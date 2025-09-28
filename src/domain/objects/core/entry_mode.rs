@@ -28,6 +28,19 @@ impl EntryMode {
             EntryMode::Directory => 0o40000,
         }
     }
+
+    pub fn from_octal_str(s: &str) -> anyhow::Result<Self> {
+        match s {
+            "100644" => Ok(EntryMode::File(FileMode::Regular)),
+            "100755" => Ok(EntryMode::File(FileMode::Executable)),
+            "40000" => Ok(EntryMode::Directory),
+            _ => Err(anyhow::anyhow!("Invalid entry mode string")),
+        }
+    }
+
+    pub fn is_tree(&self) -> bool {
+        matches!(self, EntryMode::Directory)
+    }
 }
 
 impl From<u32> for EntryMode {

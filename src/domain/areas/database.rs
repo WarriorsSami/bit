@@ -1,8 +1,13 @@
-use crate::domain::objects::object::Object;
+use crate::domain::objects::blob::Blob;
+use crate::domain::objects::commit::Commit;
+use crate::domain::objects::object::{Object, Unpackable};
+use crate::domain::objects::object_id::ObjectId;
+use crate::domain::objects::object_type::ObjectType;
+use crate::domain::objects::tree::Tree;
 use anyhow::Context;
 use bytes::Bytes;
 use fake::rand;
-use std::io::{Read, Write};
+use std::io::{BufRead, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
 pub struct Database {
@@ -18,10 +23,8 @@ impl Database {
         &self.path
     }
 
-    pub fn load(&self, object_id: &str) -> anyhow::Result<Bytes> {
-        let object_path = self
-            .path
-            .join(Path::new(&object_id[..2]).join(Path::new(&object_id[2..])));
+    pub fn load(&self, object_id: &ObjectId) -> anyhow::Result<Bytes> {
+        let object_path = self.path.join(object_id.to_path());
 
         self.read_object(object_path)
     }
@@ -47,6 +50,62 @@ impl Database {
         }
 
         Ok(())
+    }
+
+    pub fn parse_object(&self, object_id: &ObjectId) -> anyhow::Result<Box<dyn Object>> {
+        let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
+
+        match object_type {
+            ObjectType::Blob => {
+                // parse as blob
+                Ok(Box::new(Blob::deserialize(object_reader)?))
+            }
+            ObjectType::Tree => {
+                // parse as tree
+                Ok(Box::new(Tree::deserialize(object_reader)?))
+            }
+            ObjectType::Commit => {
+                // parse as commit
+                Ok(Box::new(Commit::deserialize(object_reader)?))
+            }
+        }
+    }
+
+    pub fn parse_object_as_tree(&self, object_id: &ObjectId) -> anyhow::Result<Option<Tree<'_>>> {
+        let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
+
+        match object_type {
+            ObjectType::Tree => {
+                // parse as tree
+                Ok(Some(Tree::deserialize(object_reader)?))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub fn parse_object_as_commit(&self, object_id: &ObjectId) -> anyhow::Result<Option<Commit>> {
+        let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
+
+        match object_type {
+            ObjectType::Commit => {
+                // parse as commit
+                Ok(Some(Commit::deserialize(object_reader)?))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn parse_object_as_bytes(
+        &self,
+        object_id: &ObjectId,
+    ) -> anyhow::Result<(ObjectType, impl BufRead)> {
+        let object_path = self.path.join(object_id.to_path());
+        let object_content = self.read_object(object_path)?;
+        let mut object_reader = Cursor::new(object_content);
+
+        let object_type = ObjectType::parse_object_type(&mut object_reader)?;
+
+        Ok((object_type, object_reader))
     }
 
     fn read_object(&self, object_path: PathBuf) -> anyhow::Result<Bytes> {

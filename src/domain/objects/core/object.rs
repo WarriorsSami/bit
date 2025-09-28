@@ -3,14 +3,16 @@ use crate::domain::objects::core::object_type::ObjectType;
 use anyhow::Result;
 use bytes::Bytes;
 use sha1::{Digest, Sha1};
+use std::io::BufRead;
 use std::path::PathBuf;
 
+// TODO: Consider mutably borrowing BufReader and BufWriter for efficiency
 pub trait Packable {
     fn serialize(&self) -> Result<Bytes>;
 }
 
 pub trait Unpackable {
-    fn deserialize(bytes: Bytes) -> Result<Self>
+    fn deserialize(reader: impl BufRead) -> Result<Self>
     where
         Self: Sized;
 }
@@ -31,13 +33,6 @@ pub trait Object: Packable {
     }
 
     fn object_path(&self) -> Result<PathBuf> {
-        let object_id = self.object_id()?;
-        let object_id = object_id.as_ref();
-
-        Ok(PathBuf::from(format!(
-            "{}/{}",
-            &object_id[..2],
-            &object_id[2..]
-        )))
+        Ok(self.object_id()?.to_path())
     }
 }

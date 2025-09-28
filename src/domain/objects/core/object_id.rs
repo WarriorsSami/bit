@@ -1,4 +1,5 @@
 use std::io;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]
 pub struct ObjectId(String);
@@ -38,6 +39,11 @@ impl ObjectId {
         }
 
         Self::try_parse(hex40)
+    }
+
+    pub fn to_path(&self) -> PathBuf {
+        let (dir, file) = self.0.split_at(2);
+        PathBuf::from(dir).join(file)
     }
 }
 

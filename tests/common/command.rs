@@ -79,11 +79,11 @@ fn generate_random_author() -> RandomAuthor {
 }
 
 pub fn bit_commit(dir: &Path, message: &str) -> Command {
-    let author = generate_random_author();
     let mut cmd = run_bit_command(dir, &["commit", "-m", message]);
     cmd.envs(vec![
-        ("GIT_AUTHOR_NAME", &author.name),
-        ("GIT_AUTHOR_EMAIL", &author.email),
+        ("GIT_AUTHOR_NAME", &"fake_user".to_string()),
+        ("GIT_AUTHOR_EMAIL", &"fake_email@email.com".to_string()),
+        ("GIT_AUTHOR_DATE", &"2023-01-01 12:00:00 +0000".to_string()), // %Y-%m-%d %H:%M:%S %z
     ]);
     cmd
 }

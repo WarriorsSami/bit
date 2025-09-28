@@ -1,2 +1,1 @@
-mod read_blob_object_successfully;
 mod write_blob_object_successfully;
