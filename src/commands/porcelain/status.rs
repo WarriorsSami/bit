@@ -1,15 +1,18 @@
 use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
+use crate::domain::objects::database_entry::DatabaseEntry;
 use crate::domain::objects::index_entry::{EntryMetadata, IndexEntry};
 use crate::domain::objects::object::Object;
+use crate::domain::objects::object_id::ObjectId;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 // Terminology:
 // - untracked files: files that are not tracked by the index
-// - changed/modified files: files that are tracked by the index but have changes in the workspace
-// - deleted files: files that are tracked by the index but have been deleted from the workspace
+// - workspace modified files: files that are tracked by the index but have changes in the workspace
+// - workspace deleted files: files that are tracked by the index but have been deleted from the workspace
+// - index added files: files that are in the index but not in the HEAD commit
 impl Repository {
     pub async fn status(&mut self) -> anyhow::Result<()> {
         let index = self.index();
@@ -21,12 +24,13 @@ impl Repository {
 
         self.scan_workspace(None, &mut untracked_files, &mut file_stats, &index)
             .await?;
-        let changed_files = self.detect_workspace_changes(&file_stats, &mut index);
+        let head_tree = self.load_head_tree().await?;
+        let changed_files = self.check_index_entries(&file_stats, &head_tree, &mut index);
 
         index.write_updates()?;
 
         changed_files.iter().for_each(|(file, status)| {
-            writeln!(self.writer(), " {} {}", status, file.display()).unwrap();
+            writeln!(self.writer(), "{} {}", status, file.display()).unwrap();
         });
 
         untracked_files.iter().for_each(|file| {
@@ -70,13 +74,42 @@ impl Repository {
         Ok(())
     }
 
-    fn detect_workspace_changes(
+    async fn load_head_tree(&self) -> anyhow::Result<BTreeMap<PathBuf, DatabaseEntry>> {
+        let mut head_tree = BTreeMap::<PathBuf, DatabaseEntry>::new();
+
+        if let Some(head_ref) = self.refs().read_head() {
+            let head_oid = ObjectId::try_parse(head_ref)?;
+            let commit = self.database().parse_object_as_commit(&head_oid)?;
+
+            if let Some(commit) = commit {
+                self.parse_tree(commit.tree_oid(), None, &mut head_tree, false)
+                    .await?;
+            }
+        }
+
+        Ok(head_tree)
+    }
+
+    fn check_index_entries(
+        &self,
+        file_stats: &BTreeMap<PathBuf, EntryMetadata>,
+        head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
+        index: &mut Index,
+    ) -> BTreeMap<PathBuf, String> {
+        let mut changed_files = BTreeMap::<PathBuf, BTreeSet<FileStatus>>::new();
+
+        self.check_index_against_workspace(file_stats, index, &mut changed_files);
+        self.check_index_against_head(head_tree, index, &mut changed_files);
+
+        Self::coalesce_file_statuses(&changed_files)
+    }
+
+    fn check_index_against_workspace(
         &self,
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         index: &mut Index,
-    ) -> BTreeMap<PathBuf, FileStatus> {
-        let mut changed_files = BTreeMap::<PathBuf, BTreeSet<FileStatus>>::new();
-
+        changed_files: &mut BTreeMap<PathBuf, BTreeSet<FileStatus>>,
+    ) {
         // TODO: optimize by avoiding cloning all entries
         let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
 
@@ -90,7 +123,7 @@ impl Repository {
                     changed_files
                         .entry(entry.name.clone())
                         .or_default()
-                        .insert(FileStatus::Deleted);
+                        .insert(FileStatus::WorkspaceDeleted);
                     None
                 }
             })
@@ -114,10 +147,36 @@ impl Repository {
             changed_files
                 .entry(path)
                 .or_default()
-                .insert(FileStatus::Modified);
+                .insert(FileStatus::WorkspaceModified);
         }
+    }
 
-        Self::coalesce_file_statuses(&changed_files)
+    fn check_index_against_head(
+        &self,
+        head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
+        index: &mut Index,
+        changed_files: &mut BTreeMap<PathBuf, BTreeSet<FileStatus>>,
+    ) {
+        // TODO: optimize by avoiding cloning all entries
+        let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
+
+        let added_files = index_entries
+            .into_iter()
+            .filter_map(|entry| {
+                if head_tree.contains_key(&entry.name) {
+                    None
+                } else {
+                    Some(entry.name.clone())
+                }
+            })
+            .collect::<Vec<_>>();
+
+        for path in added_files {
+            changed_files
+                .entry(path)
+                .or_default()
+                .insert(FileStatus::IndexAdded);
+        }
     }
 
     fn is_content_changed(&self, index_entry: &IndexEntry) -> anyhow::Result<bool> {
@@ -147,36 +206,62 @@ impl Repository {
         }
     }
 
+    // TODO: refactor to leverage the type system more effectively to embed the workspace and index states more naturally
+    // e.g., by creating a struct that represents the combined state of the workspace and index
     fn coalesce_file_statuses(
         file_statuses: &BTreeMap<PathBuf, BTreeSet<FileStatus>>,
-    ) -> BTreeMap<PathBuf, FileStatus> {
-        let mut coalesced_statuses = BTreeMap::<PathBuf, FileStatus>::new();
+    ) -> BTreeMap<PathBuf, String> {
+        let mut coalesced_statuses = BTreeMap::<PathBuf, String>::new();
 
         for (file, statuses) in file_statuses {
-            if statuses.contains(&FileStatus::Deleted) {
-                coalesced_statuses.insert(file.clone(), FileStatus::Deleted);
-            }
+            let index_status = if statuses.contains(&FileStatus::IndexAdded) {
+                'A'
+            } else {
+                ' '
+            };
 
-            if statuses.contains(&FileStatus::Modified) {
-                coalesced_statuses.insert(file.clone(), FileStatus::Modified);
-            }
+            let workspace_status = if statuses.contains(&FileStatus::WorkspaceDeleted) {
+                'D'
+            } else if statuses.contains(&FileStatus::WorkspaceModified) {
+                'M'
+            } else {
+                ' '
+            };
+
+            coalesced_statuses.insert(
+                file.clone(),
+                format!("{}{}", index_status, workspace_status),
+            );
         }
 
         coalesced_statuses
     }
 }
 
+// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+// enum WorkspaceChangeType {
+//     Modified,
+//     Deleted,
+// }
+//
+// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+// enum IndexChangeType {
+//     Added,
+// }
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum FileStatus {
-    Modified,
-    Deleted,
+    IndexAdded,
+    WorkspaceModified,
+    WorkspaceDeleted,
 }
 
 impl From<&FileStatus> for &str {
     fn from(status: &FileStatus) -> Self {
         match status {
-            FileStatus::Modified => "M",
-            FileStatus::Deleted => "D",
+            FileStatus::IndexAdded => "A",
+            FileStatus::WorkspaceModified => "M",
+            FileStatus::WorkspaceDeleted => "D",
         }
     }
 }

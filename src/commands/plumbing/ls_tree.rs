@@ -1,6 +1,8 @@
 use crate::domain::areas::repository::Repository;
+use crate::domain::objects::database_entry::DatabaseEntry;
 use crate::domain::objects::object_id::ObjectId;
-use std::path::Path;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 
 impl Repository {
     // TODO: add support for the recursive flag
@@ -17,32 +19,38 @@ impl Repository {
 
         match self.database().parse_object_as_commit(&oid)? {
             Some(commit) => {
-                self.parse_tree(commit.tree_oid(), None).await?;
+                self.parse_tree(commit.tree_oid(), None, &mut Default::default(), true)
+                    .await?;
             }
             None => {
-                self.parse_tree(&oid, None).await?;
+                self.parse_tree(&oid, None, &mut Default::default(), true)
+                    .await?;
             }
         }
 
         Ok(())
     }
 
-    async fn parse_tree(&self, oid: &ObjectId, prefix: Option<&Path>) -> anyhow::Result<()> {
-        let object = self.database().parse_object_as_tree(oid)?;
+    pub(crate) async fn parse_tree(
+        &self,
+        oid: &ObjectId,
+        prefix: Option<&Path>,
+        tree_data: &mut BTreeMap<PathBuf, DatabaseEntry>,
+        should_print: bool,
+    ) -> anyhow::Result<()> {
+        if let Some(tree) = self.database().parse_object_as_tree(oid)? {
+            for (name, entry) in tree.into_entries() {
+                let path = if let Some(prefix) = prefix {
+                    prefix.join(name)
+                } else {
+                    Path::new(&name).to_path_buf()
+                };
 
-        match object {
-            None => Ok(()),
-            Some(tree) => {
-                for (name, entry) in tree.into_entries() {
-                    let path = if let Some(prefix) = prefix {
-                        prefix.join(name)
-                    } else {
-                        Path::new(&name).to_path_buf()
-                    };
-
-                    if entry.is_tree() {
-                        Box::pin(self.parse_tree(&entry.oid, Some(&path))).await?;
-                    } else {
+                if entry.is_tree() {
+                    Box::pin(self.parse_tree(&entry.oid, Some(&path), tree_data, should_print))
+                        .await?;
+                } else {
+                    if should_print {
                         writeln!(
                             self.writer(),
                             "{:o} {} {}",
@@ -51,10 +59,11 @@ impl Repository {
                             path.display()
                         )?;
                     }
+                    tree_data.insert(path, entry);
                 }
-
-                Ok(())
             }
         }
+
+        Ok(())
     }
 }
