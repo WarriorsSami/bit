@@ -41,6 +41,12 @@ impl Index {
     }
 
     pub fn rehydrate(&mut self) -> anyhow::Result<()> {
+        if !self.path().exists() {
+            self.clear();
+            // create the index file
+            std::fs::File::create(self.path())?;
+        }
+
         let mut index_file = std::fs::OpenOptions::new().read(true).open(self.path())?;
         let mut lock = file_guard::lock(&mut index_file, file_guard::Lock::Shared, 0, 1)?;
 
