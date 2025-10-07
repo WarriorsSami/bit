@@ -5,16 +5,31 @@ use crate::domain::objects::database_entry::DatabaseEntry;
 use crate::domain::objects::index_entry::{EntryMetadata, IndexEntry};
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_id::ObjectId;
+use colored::*;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+const LABEL_WIDTH: usize = 8;
+
+type ChangeSet = BTreeMap<PathBuf, FileChangeType>;
+
+#[derive(Debug, Clone)]
+struct StatusInfo {
+    untracked_changeset: ChangeSet,
+    workspace_changeset: ChangeSet,
+    index_changeset: ChangeSet,
+}
 
 // Terminology:
 // - untracked files: files that are not tracked by the index
 // - workspace modified files: files that are tracked by the index but have changes in the workspace
 // - workspace deleted files: files that are tracked by the index but have been deleted from the workspace
 // - index added files: files that are in the index but not in the HEAD commit
+// - index modified files: files that are in the index and in the HEAD commit but have different content or mode
+// - index deleted files: files that are in the HEAD commit but not in the index
 impl Repository {
-    pub async fn status(&mut self) -> anyhow::Result<()> {
+    // TODO: define a data structure to return the status information more easily and cache it if needed inside the Repository struct
+    pub async fn status(&mut self, porcelain: bool) -> anyhow::Result<()> {
         let index = self.index();
         let mut index = index.lock().await;
 
@@ -29,17 +44,84 @@ impl Repository {
         let mut changed_files = self.check_index_entries(&file_stats, &head_tree, &mut index);
         self.collect_deleted_head_files(&head_tree, &mut index, &mut changed_files);
 
-        let changed_files = Self::coalesce_file_statuses(&changed_files);
+        if porcelain {
+            changed_files.iter().for_each(|(file, status)| {
+                writeln!(self.writer(), "{} {}", status, file.display()).unwrap();
+            });
 
-        changed_files.iter().for_each(|(file, status)| {
-            writeln!(self.writer(), "{} {}", status, file.display()).unwrap();
-        });
+            untracked_files.iter().for_each(|file| {
+                writeln!(self.writer(), "?? {}", file.display()).unwrap();
+            });
+        } else {
+            let untracked_changeset = untracked_files
+                .iter()
+                .map(|file| (file.clone(), FileChangeType::Untracked))
+                .collect::<BTreeMap<_, _>>();
+            let workspace_changeset = changed_files
+                .iter()
+                .filter(|(_, change)| change.workspace_change != WorkspaceChangeType::None)
+                .map(|(file, change)| {
+                    (
+                        file.clone(),
+                        FileChangeType::Workspace(change.workspace_change.clone()),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            let index_changeset = changed_files
+                .iter()
+                .filter(|(_, change)| change.index_change != IndexChangeType::None)
+                .map(|(file, change)| {
+                    (
+                        file.clone(),
+                        FileChangeType::Index(change.index_change.clone()),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
 
-        untracked_files.iter().for_each(|file| {
-            writeln!(self.writer(), "?? {}", file.display()).unwrap();
-        });
+            Self::print_changes("Changes to be committed", &index_changeset);
+            Self::print_changes("Changes not staged for commit", &workspace_changeset);
+            Self::print_changes("Untracked files", &untracked_changeset);
+
+            let status_info = StatusInfo {
+                untracked_changeset,
+                workspace_changeset,
+                index_changeset,
+            };
+            Self::print_commit_status(&status_info);
+        }
 
         Ok(())
+    }
+
+    fn print_changes(message: &str, changeset: &BTreeMap<PathBuf, FileChangeType>) {
+        if !changeset.is_empty() {
+            println!("{}:\n", message.bold());
+            for (file, change) in changeset {
+                println!("{}{}", change, file.display().to_string().cyan());
+            }
+            println!();
+        }
+    }
+
+    fn print_commit_status(status_info: &StatusInfo) {
+        if !status_info.index_changeset.is_empty() {
+            return;
+        }
+
+        if !status_info.workspace_changeset.is_empty() {
+            println!("{}", "no changes added to commit".yellow());
+            return;
+        }
+
+        if !status_info.untracked_changeset.is_empty() {
+            println!(
+                "{}",
+                "no changes added to commit but untracked files present".yellow()
+            );
+            return;
+        }
+
+        println!("{}", "nothing to commit, working tree clean".green());
     }
 
     async fn scan_workspace(
@@ -97,8 +179,8 @@ impl Repository {
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
         index: &mut Index,
-    ) -> BTreeMap<PathBuf, BTreeSet<FileStatus>> {
-        let mut changed_files = BTreeMap::<PathBuf, BTreeSet<FileStatus>>::new();
+    ) -> BTreeMap<PathBuf, FileChange> {
+        let mut changed_files = BTreeMap::<PathBuf, FileChange>::new();
 
         self.check_index_against_workspace(file_stats, index, &mut changed_files);
         self.check_index_against_head(head_tree, index, &mut changed_files);
@@ -110,7 +192,7 @@ impl Repository {
         &self,
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         index: &mut Index,
-        changed_files: &mut BTreeMap<PathBuf, BTreeSet<FileStatus>>,
+        changed_files: &mut BTreeMap<PathBuf, FileChange>,
     ) {
         // TODO: optimize by avoiding cloning all entries
         let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
@@ -125,7 +207,8 @@ impl Repository {
                     changed_files
                         .entry(entry.name.clone())
                         .or_default()
-                        .insert(FileStatus::WorkspaceDeleted);
+                        .workspace_change = WorkspaceChangeType::Deleted;
+
                     None
                 }
             })
@@ -146,10 +229,7 @@ impl Repository {
             .collect::<Vec<_>>();
 
         for path in modified_files {
-            changed_files
-                .entry(path)
-                .or_default()
-                .insert(FileStatus::WorkspaceModified);
+            changed_files.entry(path).or_default().workspace_change = WorkspaceChangeType::Modified;
         }
     }
 
@@ -157,7 +237,7 @@ impl Repository {
         &self,
         head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
         index: &mut Index,
-        changed_files: &mut BTreeMap<PathBuf, BTreeSet<FileStatus>>,
+        changed_files: &mut BTreeMap<PathBuf, FileChange>,
     ) {
         // TODO: optimize by avoiding cloning all entries
         let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
@@ -169,12 +249,12 @@ impl Repository {
                 changed_files
                     .entry(entry.name.clone())
                     .or_default()
-                    .insert(FileStatus::IndexModified);
+                    .index_change = IndexChangeType::Modified;
             } else if !head_tree.contains_key(&entry.name) {
                 changed_files
                     .entry(entry.name.clone())
                     .or_default()
-                    .insert(FileStatus::IndexAdded);
+                    .index_change = IndexChangeType::Added;
             }
         });
     }
@@ -183,14 +263,12 @@ impl Repository {
         &self,
         head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
         index: &mut Index,
-        changed_files: &mut BTreeMap<PathBuf, BTreeSet<FileStatus>>,
+        changed_files: &mut BTreeMap<PathBuf, FileChange>,
     ) {
         head_tree.iter().for_each(|(path, _)| {
             if !index.is_directly_tracked(path) {
-                changed_files
-                    .entry(path.clone())
-                    .or_default()
-                    .insert(FileStatus::IndexDeleted);
+                changed_files.entry(path.clone()).or_default().index_change =
+                    IndexChangeType::Deleted;
             }
         });
     }
@@ -221,78 +299,109 @@ impl Repository {
             Ok(paths.any(|p| self.is_indirectly_tracked(p, index).unwrap_or(false)))
         }
     }
+}
 
-    // TODO: refactor to leverage the type system more effectively to embed the workspace and index states more naturally
-    // e.g., by creating a struct that represents the combined state of the workspace and index
-    fn coalesce_file_statuses(
-        file_statuses: &BTreeMap<PathBuf, BTreeSet<FileStatus>>,
-    ) -> BTreeMap<PathBuf, String> {
-        let mut coalesced_statuses = BTreeMap::<PathBuf, String>::new();
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+enum WorkspaceChangeType {
+    #[default]
+    None,
+    Modified,
+    Deleted,
+}
 
-        for (file, statuses) in file_statuses {
-            let index_status = if statuses.contains(&FileStatus::IndexAdded) {
-                'A'
-            } else if statuses.contains(&FileStatus::IndexModified) {
-                'M'
-            } else if statuses.contains(&FileStatus::IndexDeleted) {
-                'D'
-            } else {
-                ' '
-            };
-
-            let workspace_status = if statuses.contains(&FileStatus::WorkspaceDeleted) {
-                'D'
-            } else if statuses.contains(&FileStatus::WorkspaceModified) {
-                'M'
-            } else {
-                ' '
-            };
-
-            coalesced_statuses.insert(
-                file.clone(),
-                format!("{}{}", index_status, workspace_status),
-            );
+impl From<&WorkspaceChangeType> for &str {
+    fn from(change: &WorkspaceChangeType) -> Self {
+        match change {
+            WorkspaceChangeType::None => " ",
+            WorkspaceChangeType::Modified => "M",
+            WorkspaceChangeType::Deleted => "D",
         }
-
-        coalesced_statuses
     }
 }
 
-// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-// enum WorkspaceChangeType {
-//     Modified,
-//     Deleted,
-// }
-//
-// #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-// enum IndexChangeType {
-//     Added,
-// }
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+enum IndexChangeType {
+    #[default]
+    None,
+    Added,
+    Modified,
+    Deleted,
+}
+
+impl From<&IndexChangeType> for &str {
+    fn from(change: &IndexChangeType) -> Self {
+        match change {
+            IndexChangeType::None => " ",
+            IndexChangeType::Added => "A",
+            IndexChangeType::Modified => "M",
+            IndexChangeType::Deleted => "D",
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-enum FileStatus {
-    IndexAdded,
-    IndexModified,
-    IndexDeleted,
-    WorkspaceModified,
-    WorkspaceDeleted,
+enum FileChangeType {
+    Untracked,
+    Workspace(WorkspaceChangeType),
+    Index(IndexChangeType),
 }
 
-impl From<&FileStatus> for &str {
-    fn from(status: &FileStatus) -> Self {
-        match status {
-            FileStatus::IndexAdded => "A",
-            FileStatus::IndexModified => "M",
-            FileStatus::IndexDeleted => "D",
-            FileStatus::WorkspaceModified => "M",
-            FileStatus::WorkspaceDeleted => "D",
+impl From<&FileChangeType> for &str {
+    fn from(change: &FileChangeType) -> Self {
+        match change {
+            FileChangeType::Untracked => "",
+            FileChangeType::Workspace(workspace_change) => match workspace_change {
+                WorkspaceChangeType::None => "",
+                WorkspaceChangeType::Modified => "modified:   ",
+                WorkspaceChangeType::Deleted => "deleted:    ",
+            },
+            FileChangeType::Index(index_change) => match index_change {
+                IndexChangeType::None => "",
+                IndexChangeType::Added => "new file:   ",
+                IndexChangeType::Modified => "modified:   ",
+                IndexChangeType::Deleted => "deleted:   ",
+            },
         }
     }
 }
 
-impl std::fmt::Display for FileStatus {
+impl std::fmt::Display for FileChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let status_str: &str = self.into();
-        write!(f, "{}", status_str)
+        let colored_str = match self {
+            FileChangeType::Untracked => "".normal(),
+            FileChangeType::Workspace(workspace_change) => match workspace_change {
+                WorkspaceChangeType::None => "".normal(),
+                WorkspaceChangeType::Modified => "modified:   ".red(),
+                WorkspaceChangeType::Deleted => "deleted:    ".red(),
+            },
+            FileChangeType::Index(index_change) => match index_change {
+                IndexChangeType::None => "".normal(),
+                IndexChangeType::Added => "new file:   ".green(),
+                IndexChangeType::Modified => "modified:   ".green(),
+                IndexChangeType::Deleted => "deleted:    ".green(),
+            },
+        };
+        write!(f, "{:>width$}{}", "", colored_str, width = LABEL_WIDTH)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Default)]
+struct FileChange {
+    workspace_change: WorkspaceChangeType,
+    index_change: IndexChangeType,
+}
+
+impl From<&FileChange> for String {
+    fn from(change: &FileChange) -> Self {
+        let index_str: &str = (&change.index_change).into();
+        let workspace_str: &str = (&change.workspace_change).into();
+        format!("{}{}", index_str, workspace_str)
+    }
+}
+
+impl std::fmt::Display for FileChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let change_str: String = self.into();
+        write!(f, "{}", change_str)
     }
 }

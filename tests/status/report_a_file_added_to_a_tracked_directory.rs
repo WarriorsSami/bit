@@ -20,7 +20,7 @@ fn report_a_file_added_to_a_tracked_directory(
         .success();
 
     let expected_output = "A  a/4.txt\n".to_string();
-    let actual_output = run_bit_command(repository_dir.path(), &["status"])
+    let actual_output = run_bit_command(repository_dir.path(), &["status", "--porcelain"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

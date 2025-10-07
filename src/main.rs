@@ -98,7 +98,14 @@ enum Commands {
         long_about = "This command shows the status of the working tree, \
         including staged, unstaged, and untracked files."
     )]
-    Status,
+    Status {
+        #[arg(
+            short,
+            long,
+            help = "Give the output in a stable, machine-readable format"
+        )]
+        porcelain: bool,
+    },
 }
 
 #[tokio::main]
@@ -145,12 +152,12 @@ async fn main() -> Result<()> {
 
             repository.commit(message.as_str()).await?
         }
-        Commands::Status => {
+        Commands::Status { porcelain } => {
             let pwd = std::env::current_dir()?;
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.status().await?
+            repository.status(*porcelain).await?
         }
     }
 

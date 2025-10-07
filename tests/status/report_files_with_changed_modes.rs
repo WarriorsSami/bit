@@ -14,9 +14,10 @@ fn report_files_with_changed_modes(
     make_file_executable(&file2);
 
     let expected_output = " M a/2.txt\n".to_string();
-    let actual_output = crate::common::command::run_bit_command(repository_dir.path(), &["status"])
-        .assert()
-        .success();
+    let actual_output =
+        crate::common::command::run_bit_command(repository_dir.path(), &["status", "--porcelain"])
+            .assert()
+            .success();
     let stdout = actual_output.get_output().stdout.clone();
     let actual_output = String::from_utf8(stdout)?;
 

@@ -48,7 +48,7 @@ fn list_untracked_directories_inside_tracked_directories(
     write_file(file);
 
     let expected_output = "?? a/b/c/\n?? a/outer_file.txt\n".to_string();
-    let actual_output = run_bit_command(repository_dir.path(), &["status"])
+    let actual_output = run_bit_command(repository_dir.path(), &["status", "--porcelain"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

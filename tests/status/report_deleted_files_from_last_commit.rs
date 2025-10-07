@@ -20,7 +20,7 @@ fn report_deleted_files_from_last_commit(
         .success();
 
     let expected_output = "D  1.txt\n".to_string();
-    let actual_output = run_bit_command(repository_dir.path(), &["status"])
+    let actual_output = run_bit_command(repository_dir.path(), &["status", "--porcelain"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

@@ -34,7 +34,7 @@ fn list_files_as_untracked_if_they_are_not_in_the_index(
         untracked_file.path.file_name().unwrap().to_string_lossy()
     );
 
-    let actual_output = run_bit_command(repository_dir.path(), &["status"])
+    let actual_output = run_bit_command(repository_dir.path(), &["status", "--porcelain"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

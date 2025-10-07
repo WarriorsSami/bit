@@ -16,7 +16,7 @@ fn do_not_list_empty_untracked_directories(
     create_directory(&outer_dir_path);
 
     let expected_output = "".to_string();
-    let actual_output = run_bit_command(repository_dir.path(), &["status"])
+    let actual_output = run_bit_command(repository_dir.path(), &["status", "--porcelain"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

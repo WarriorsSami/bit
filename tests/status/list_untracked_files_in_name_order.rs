@@ -22,7 +22,7 @@ fn list_untracked_files_in_name_order(
         .join("\n")
         + "\n";
 
-    let actual_output = run_bit_command(repository_dir.path(), &["status"])
+    let actual_output = run_bit_command(repository_dir.path(), &["status", "--porcelain"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

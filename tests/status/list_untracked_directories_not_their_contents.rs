@@ -23,7 +23,7 @@ fn list_untracked_directories_not_their_contents(
 
     let expected_output = "?? dir/\n?? file.txt\n".to_string();
 
-    let actual_output = run_bit_command(repository_dir.path(), &["status"])
+    let actual_output = run_bit_command(repository_dir.path(), &["status", "--porcelain"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

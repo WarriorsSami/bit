@@ -23,9 +23,10 @@ fn report_files_with_modified_contents(
     write_file(file2);
 
     let expected_output = " M 1.txt\n M a/2.txt\n".to_string();
-    let actual_output = crate::common::command::run_bit_command(repository_dir.path(), &["status"])
-        .assert()
-        .success();
+    let actual_output =
+        crate::common::command::run_bit_command(repository_dir.path(), &["status", "--porcelain"])
+            .assert()
+            .success();
     let stdout = actual_output.get_output().stdout.clone();
     let actual_output = String::from_utf8(stdout)?;
 
