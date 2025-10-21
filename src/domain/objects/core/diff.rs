@@ -229,7 +229,6 @@ mod tests {
         ];
 
         assert_eq!(result, expected);
-        println!("{}", MyersDiff::new(&a, &b).format_diff());
     }
 
     #[rstest]

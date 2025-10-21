@@ -157,7 +157,7 @@ async fn main() -> Result<()> {
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.status(*porcelain).await?
+            repository.display_status(*porcelain).await?
         }
     }
 

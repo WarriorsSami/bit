@@ -2,6 +2,7 @@ use crate::domain::areas::database::Database;
 use crate::domain::areas::index::Index;
 use crate::domain::areas::refs::Refs;
 use crate::domain::areas::workspace::Workspace;
+use crate::domain::objects::status::Status;
 use std::cell::{RefCell, RefMut};
 use std::path::Path;
 use std::sync::Arc;
@@ -61,5 +62,9 @@ impl Repository {
 
     pub fn refs(&self) -> &Refs {
         &self.refs
+    }
+
+    pub fn status(&'_ self) -> Status<'_> {
+        Status::new(self)
     }
 }
