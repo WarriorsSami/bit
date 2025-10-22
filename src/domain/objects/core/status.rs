@@ -12,11 +12,13 @@ use derive_new::new;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-type ChangeSet = BTreeMap<PathBuf, FileChangeType>;
-type FileSet = BTreeSet<PathBuf>;
+pub type FileStatSet = BTreeMap<PathBuf, EntryMetadata>;
+pub type ChangeSet = BTreeMap<PathBuf, FileChangeType>;
+pub type FileSet = BTreeSet<PathBuf>;
 
 #[derive(Debug, Clone)]
 pub struct StatusInfo {
+    pub(crate) file_stats: FileStatSet,
     pub(crate) untracked_files: FileSet,
     pub(crate) changed_files: BTreeMap<PathBuf, FileChange>,
     pub(crate) untracked_changeset: ChangeSet,
@@ -66,6 +68,7 @@ impl<'r> Status<'r> {
             .collect::<BTreeMap<_, _>>();
 
         Ok(StatusInfo {
+            file_stats,
             untracked_files,
             changed_files,
             untracked_changeset,
@@ -228,8 +231,7 @@ impl<'r> Status<'r> {
     }
 
     fn is_content_changed(&self, index_entry: &IndexEntry) -> anyhow::Result<bool> {
-        let data = self.repository.workspace().read_file(&index_entry.name)?;
-        let blob = Blob::new(data, Default::default());
+        let blob = self.repository.workspace().parse_blob(&index_entry.name)?;
         let oid = blob.object_id()?;
 
         Ok(oid != index_entry.oid)

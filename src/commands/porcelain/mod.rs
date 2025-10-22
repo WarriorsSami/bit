@@ -1,4 +1,5 @@
 pub mod add;
 pub mod commit;
+pub mod diff;
 pub mod init;
-mod status;
+pub mod status;

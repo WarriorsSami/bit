@@ -8,6 +8,7 @@ mod commit;
 /// 4. Running git commands
 /// 5. Comparing index contents
 mod common;
+mod diff;
 mod hash_object;
 mod init;
 mod ls_tree;

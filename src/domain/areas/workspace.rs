@@ -1,3 +1,4 @@
+use crate::domain::objects::blob::Blob;
 use crate::domain::objects::index_entry::EntryMetadata;
 use anyhow::anyhow;
 use std::fs::metadata;
@@ -17,6 +18,11 @@ impl Workspace {
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn parse_blob(&self, path: &Path) -> anyhow::Result<Blob> {
+        let data = self.read_file(path)?;
+        Ok(Blob::new(data, Default::default()))
     }
 
     pub fn list_dir(&self, dir_path: Option<&Path>) -> anyhow::Result<Vec<PathBuf>> {

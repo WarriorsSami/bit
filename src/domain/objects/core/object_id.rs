@@ -45,6 +45,10 @@ impl ObjectId {
         let (dir, file) = self.0.split_at(2);
         PathBuf::from(dir).join(file)
     }
+
+    pub fn to_short_oid(&self) -> String {
+        self.0.split_at(7).0.to_string()
+    }
 }
 
 impl AsRef<str> for ObjectId {

@@ -33,6 +33,10 @@ impl Index {
         &self.path
     }
 
+    pub fn entry_by_path(&self, path: &Path) -> Option<&IndexEntry> {
+        self.entries.get(path)
+    }
+
     fn clear(&mut self) {
         self.entries.clear();
         self.children.clear();

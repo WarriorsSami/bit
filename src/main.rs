@@ -106,6 +106,19 @@ enum Commands {
         )]
         porcelain: bool,
     },
+    #[command(
+        name = "diff",
+        about = "Show changes between commits, commit and working tree, etc.",
+        long_about = "This command shows the differences between various states in the repository."
+    )]
+    Diff {
+        #[arg(
+            short,
+            long,
+            help = "Compare the index to the last commit (HEAD) instead of the working tree"
+        )]
+        cached: bool,
+    },
 }
 
 #[tokio::main]
@@ -158,6 +171,13 @@ async fn main() -> Result<()> {
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.display_status(*porcelain).await?
+        }
+        Commands::Diff { cached } => {
+            let pwd = std::env::current_dir()?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.diff(*cached).await?
         }
     }
 
