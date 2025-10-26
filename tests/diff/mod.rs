@@ -1,3 +1,4 @@
+mod show_diff_for_file_deleted_from_workspace;
 mod show_diff_for_file_with_both_modified_content_and_mode_in_workspace;
 mod show_diff_for_file_with_modified_content_in_workspace;
 mod show_diff_for_file_with_modified_mode_in_workspace;

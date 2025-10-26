@@ -12,6 +12,7 @@ use derive_new::new;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
+// TODO: use the file change types separately for each area change (untracked, workspace, index)
 pub type FileStatSet = BTreeMap<PathBuf, EntryMetadata>;
 pub type ChangeSet = BTreeMap<PathBuf, FileChangeType>;
 pub type FileSet = BTreeSet<PathBuf>;
