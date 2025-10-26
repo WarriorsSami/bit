@@ -1,16 +1,18 @@
 use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
+use crate::domain::areas::workspace::Workspace;
 use crate::domain::objects::file_change::{FileChangeType, WorkspaceChangeType};
 use crate::domain::objects::object::Object;
 use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::status::FileStatSet;
-use std::path::Path;
+use derive_new::new;
+use std::path::{Path, PathBuf};
 
 const NULL_OID_RAW: &str = "0000000000000000000000000000000000000000";
 const NULL_PATH: &str = "/dev/null";
 
 impl Repository {
-    pub async fn diff(&mut self, cached: bool) -> anyhow::Result<()> {
+    pub async fn diff(&mut self, _cached: bool) -> anyhow::Result<()> {
         let index = self.index();
         let mut index = index.lock().await;
 
@@ -30,10 +32,14 @@ impl Repository {
                 _ => None,
             })
             .map(|(file, change)| match change {
-                WorkspaceChangeType::Modified => {
-                    self.diff_file_modified(file, cached, &index, &status_info.file_stats)
-                }
-                WorkspaceChangeType::Deleted => self.diff_file_deleted(file, cached, &index),
+                WorkspaceChangeType::Modified => self.print_diff(
+                    &mut DiffTarget::from_index(file, &index)?,
+                    &mut DiffTarget::from_file(file, self.workspace(), &status_info.file_stats)?,
+                ),
+                WorkspaceChangeType::Deleted => self.print_diff(
+                    &mut DiffTarget::from_index(file, &index)?,
+                    &mut DiffTarget::from_nothing(file)?,
+                ),
                 _ => unreachable!(),
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -41,88 +47,120 @@ impl Repository {
         Ok(())
     }
 
-    fn diff_file_modified(
-        &self,
-        file: &Path,
-        _cached: bool,
-        index: &Index,
-        file_stats: &FileStatSet,
-    ) -> anyhow::Result<()> {
+    fn print_diff(&self, a: &mut DiffTarget, b: &mut DiffTarget) -> anyhow::Result<()> {
+        if a.oid == b.oid && a.mode == b.mode {
+            return Ok(());
+        }
+
+        a.file = Path::new("a").join(&a.file);
+        b.file = Path::new("b").join(&b.file);
+
+        writeln!(
+            self.writer(),
+            "diff --git {} {}",
+            a.file.display(),
+            b.file.display()
+        )?;
+        self.print_diff_mode(a, b)?;
+        self.print_diff_content(a, b)?;
+
+        Ok(())
+    }
+
+    fn print_diff_mode(&self, a: &DiffTarget, b: &DiffTarget) -> anyhow::Result<()> {
+        if b.mode.is_none() {
+            writeln!(self.writer(), "deleted file mode {}", a.pretty_mode())?;
+        } else if a.mode != b.mode {
+            writeln!(self.writer(), "old mode {}", a.pretty_mode())?;
+            writeln!(self.writer(), "new mode {}", b.pretty_mode())?;
+        }
+
+        Ok(())
+    }
+
+    fn print_diff_content(&self, a: &DiffTarget, b: &DiffTarget) -> anyhow::Result<()> {
+        if a.oid == b.oid {
+            return Ok(());
+        }
+
+        let mut oid_range = format!("index {}..{}", a.oid.to_short_oid(), b.oid.to_short_oid());
+        if a.mode == b.mode {
+            oid_range.push_str(format!(" {}", a.pretty_mode()).as_str());
+        }
+
+        writeln!(self.writer(), "{oid_range}")?;
+        writeln!(self.writer(), "--- {}", a.diff_path().display())?;
+        writeln!(self.writer(), "+++ {}", b.diff_path().display())?;
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, new)]
+struct DiffTarget<'d> {
+    file: PathBuf,
+    oid: ObjectId,
+    mode: Option<&'d str>,
+}
+
+impl<'d> DiffTarget<'d> {
+    pub fn from_index(file: &Path, index: &'d Index) -> anyhow::Result<Self> {
         match index.entry_by_path(file) {
             Some(entry) => {
-                let a_oid = &entry.oid;
-                let a_mode = entry.metadata.mode.as_str();
-                let a_path = Path::new("a").join(file);
+                let oid = &entry.oid;
+                let mode = entry.metadata.mode.as_str();
 
-                let blob = self.workspace().parse_blob(file)?;
-                let b_oid = blob.object_id()?;
-                // if there is no file stat, report the error and return
-                let b_mode = file_stats
-                    .get(file)
-                    .ok_or_else(|| anyhow::anyhow!("File {} not tracked", file.display()))?
-                    .mode
-                    .as_str();
-                let b_path = Path::new("b").join(file);
-
-                writeln!(
-                    self.writer(),
-                    "diff --git {} {}",
-                    a_path.display(),
-                    b_path.display()
-                )?;
-
-                if a_mode != b_mode {
-                    writeln!(self.writer(), "old mode {}", a_mode)?;
-                    writeln!(self.writer(), "new mode {}", b_mode)?;
-                }
-
-                if *a_oid == b_oid {
-                    return Ok(());
-                }
-
-                let mut oid_range =
-                    format!("index {}..{}", a_oid.to_short_oid(), b_oid.to_short_oid(),);
-                if a_mode == b_mode {
-                    oid_range.push_str(format!(" {}", a_mode).as_str());
-                }
-
-                writeln!(self.writer(), "{oid_range}")?;
-                writeln!(self.writer(), "--- {}", a_path.display())?;
-                writeln!(self.writer(), "+++ {}", b_path.display())?;
-
-                Ok(())
+                Ok(Self {
+                    file: file.to_path_buf(),
+                    oid: oid.clone(),
+                    mode: Some(mode),
+                })
             }
             None => anyhow::bail!("File {} not tracked", file.display()),
         }
     }
 
-    fn diff_file_deleted(&self, file: &Path, _cached: bool, index: &Index) -> anyhow::Result<()> {
-        match index.entry_by_path(file) {
-            Some(entry) => {
-                let a_oid = &entry.oid;
-                let a_mode = entry.metadata.mode.as_str();
-                let a_path = Path::new("a").join(file);
+    pub fn from_file(
+        file: &Path,
+        workspace: &Workspace,
+        file_stats: &'d FileStatSet,
+    ) -> anyhow::Result<Self> {
+        let blob = workspace.parse_blob(file)?;
+        let oid = blob.object_id()?;
+        let mode = file_stats
+            .get(file)
+            .ok_or_else(|| anyhow::anyhow!("File {} not tracked", file.display()))?
+            .mode
+            .as_str();
 
-                let b_oid = ObjectId::try_parse(NULL_OID_RAW.to_string())?;
-                let b_path = Path::new("b").join(file);
+        Ok(Self {
+            file: file.to_path_buf(),
+            oid,
+            mode: Some(mode),
+        })
+    }
 
-                writeln!(
-                    self.writer(),
-                    "diff --git {} {}",
-                    a_path.display(),
-                    b_path.display()
-                )?;
-                writeln!(self.writer(), "deleted file mode {}", a_mode)?;
+    pub fn from_nothing(file: &Path) -> anyhow::Result<Self> {
+        Ok(Self {
+            file: file.to_path_buf(),
+            oid: ObjectId::try_parse(NULL_OID_RAW.to_string())?,
+            mode: None,
+        })
+    }
 
-                let oid_range = format!("index {}..{}", a_oid.to_short_oid(), b_oid.to_short_oid());
+    pub fn diff_path(&self) -> PathBuf {
+        if self.mode.is_some() {
+            self.file.clone()
+        } else {
+            Path::new(NULL_PATH).to_path_buf()
+        }
+    }
 
-                writeln!(self.writer(), "{oid_range}")?;
-                writeln!(self.writer(), "--- {}", a_path.display())?;
-                writeln!(self.writer(), "+++ {}", NULL_PATH)?;
-
-                Ok(())
-            }
-            None => anyhow::bail!("File {} not tracked", file.display()),
+    pub fn pretty_mode(&self) -> &'d str {
+        if let Some(mode) = self.mode {
+            mode
+        } else {
+            "100644"
         }
     }
 }

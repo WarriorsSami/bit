@@ -1,11 +1,11 @@
-#[derive(Debug, Clone, Eq, Ord, Default, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, Ord, Default, PartialEq, PartialOrd)]
 pub enum FileMode {
     #[default]
     Regular,
     Executable,
 }
 
-#[derive(Debug, Clone, Eq, Ord, Default, PartialEq, PartialOrd)]
+#[derive(Debug, Copy, Clone, Eq, Ord, Default, PartialEq, PartialOrd)]
 pub enum EntryMode {
     File(FileMode),
     #[default]
