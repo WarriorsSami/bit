@@ -7,7 +7,7 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::DerefMut;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct Index {
@@ -176,6 +176,16 @@ impl Index {
     pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
         self.discard_conflicts(&entry)?;
         self.store_entry(&entry)?;
+
+        self.header.entries_count = self.entries.len() as u32;
+        self.changed = true;
+
+        Ok(())
+    }
+
+    pub fn remove(&mut self, path: PathBuf) -> anyhow::Result<()> {
+        self.remove_entry(&path)?;
+        self.remove_children(&path)?;
 
         self.header.entries_count = self.entries.len() as u32;
         self.changed = true;

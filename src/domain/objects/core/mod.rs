@@ -1,6 +1,7 @@
 pub mod checksum;
 pub mod database_entry;
 pub mod diff;
+pub mod diff_target;
 pub mod entry_mode;
 pub mod file_change;
 pub mod index_entry;

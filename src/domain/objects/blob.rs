@@ -16,6 +16,10 @@ impl Blob {
     pub fn mode(&self) -> &FileMode {
         &self.stat
     }
+
+    pub fn content(&self) -> &str {
+        &self.content
+    }
 }
 
 impl Packable for Blob {

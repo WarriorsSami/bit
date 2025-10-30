@@ -3,7 +3,7 @@ name = "bit"
 version = "0.1.0"
 authors = ["Sami Barbut-Dica"]
 edition = "2024"
-rust-version = "1.90"
+rust-version = "1.91"
 
 [dependencies]
 anyhow = "1.0.98"

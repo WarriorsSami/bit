@@ -1,24 +1,35 @@
 use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
 use crate::domain::areas::workspace::Workspace;
-use crate::domain::objects::file_change::{FileChangeType, WorkspaceChangeType};
-use crate::domain::objects::object::Object;
-use crate::domain::objects::object_id::ObjectId;
-use crate::domain::objects::status::FileStatSet;
-use derive_new::new;
-use std::path::{Path, PathBuf};
-
-const NULL_OID_RAW: &str = "0000000000000000000000000000000000000000";
-const NULL_PATH: &str = "/dev/null";
+use crate::domain::objects::diff::{DiffAlgorithm, MyersDiff};
+use crate::domain::objects::diff_target::DiffTarget;
+use crate::domain::objects::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
+use crate::domain::objects::status::StatusInfo;
+use std::path::Path;
 
 impl Repository {
-    pub async fn diff(&mut self, _cached: bool) -> anyhow::Result<()> {
+    pub async fn diff(&mut self, cached: bool) -> anyhow::Result<()> {
         let index = self.index();
         let mut index = index.lock().await;
 
         index.rehydrate()?;
         let status_info = self.status().initialize(&mut index).await?;
 
+        if !cached {
+            self.diff_index_workspace(&status_info, &index, self.workspace())?;
+        } else {
+            self.diff_head_index(&status_info, &index)?;
+        }
+
+        Ok(())
+    }
+
+    fn diff_index_workspace(
+        &self,
+        status_info: &StatusInfo,
+        index: &Index,
+        workspace: &Workspace,
+    ) -> anyhow::Result<()> {
         status_info
             .workspace_changeset
             .iter()
@@ -33,11 +44,47 @@ impl Repository {
             })
             .map(|(file, change)| match change {
                 WorkspaceChangeType::Modified => self.print_diff(
-                    &mut DiffTarget::from_index(file, &index)?,
-                    &mut DiffTarget::from_file(file, self.workspace(), &status_info.file_stats)?,
+                    &mut DiffTarget::from_index(file, index, self.database())?,
+                    &mut DiffTarget::from_file(file, workspace, &status_info.file_stats)?,
                 ),
                 WorkspaceChangeType::Deleted => self.print_diff(
-                    &mut DiffTarget::from_index(file, &index)?,
+                    &mut DiffTarget::from_index(file, index, self.database())?,
+                    &mut DiffTarget::from_nothing(file)?,
+                ),
+                _ => unreachable!(),
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        Ok(())
+    }
+
+    fn diff_head_index(&self, status_info: &StatusInfo, index: &Index) -> anyhow::Result<()> {
+        status_info
+            .index_changeset
+            .iter()
+            .filter_map(|(file, change)| match *change {
+                FileChangeType::Index(IndexChangeType::Added) => {
+                    Some((file, IndexChangeType::Added))
+                }
+                FileChangeType::Index(IndexChangeType::Modified) => {
+                    Some((file, IndexChangeType::Modified))
+                }
+                FileChangeType::Index(IndexChangeType::Deleted) => {
+                    Some((file, IndexChangeType::Deleted))
+                }
+                _ => None,
+            })
+            .map(|(file, change)| match change {
+                IndexChangeType::Added => self.print_diff(
+                    &mut DiffTarget::from_nothing(file)?,
+                    &mut DiffTarget::from_index(file, index, self.database())?,
+                ),
+                IndexChangeType::Modified => self.print_diff(
+                    &mut DiffTarget::from_head(file, &status_info.head_tree, self.database())?,
+                    &mut DiffTarget::from_index(file, index, self.database())?,
+                ),
+                IndexChangeType::Deleted => self.print_diff(
+                    &mut DiffTarget::from_head(file, &status_info.head_tree, self.database())?,
                     &mut DiffTarget::from_nothing(file)?,
                 ),
                 _ => unreachable!(),
@@ -68,7 +115,9 @@ impl Repository {
     }
 
     fn print_diff_mode(&self, a: &DiffTarget, b: &DiffTarget) -> anyhow::Result<()> {
-        if b.mode.is_none() {
+        if a.mode.is_none() {
+            writeln!(self.writer(), "new file mode {}", b.pretty_mode())?;
+        } else if b.mode.is_none() {
             writeln!(self.writer(), "deleted file mode {}", a.pretty_mode())?;
         } else if a.mode != b.mode {
             writeln!(self.writer(), "old mode {}", a.pretty_mode())?;
@@ -92,75 +141,11 @@ impl Repository {
         writeln!(self.writer(), "--- {}", a.diff_path().display())?;
         writeln!(self.writer(), "+++ {}", b.diff_path().display())?;
 
+        let edits = MyersDiff::new(&a.data, &b.data).diff();
+        for edit in edits {
+            writeln!(self.writer(), "{}", edit)?;
+        }
+
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, new)]
-struct DiffTarget<'d> {
-    file: PathBuf,
-    oid: ObjectId,
-    mode: Option<&'d str>,
-}
-
-impl<'d> DiffTarget<'d> {
-    pub fn from_index(file: &Path, index: &'d Index) -> anyhow::Result<Self> {
-        match index.entry_by_path(file) {
-            Some(entry) => {
-                let oid = &entry.oid;
-                let mode = entry.metadata.mode.as_str();
-
-                Ok(Self {
-                    file: file.to_path_buf(),
-                    oid: oid.clone(),
-                    mode: Some(mode),
-                })
-            }
-            None => anyhow::bail!("File {} not tracked", file.display()),
-        }
-    }
-
-    pub fn from_file(
-        file: &Path,
-        workspace: &Workspace,
-        file_stats: &'d FileStatSet,
-    ) -> anyhow::Result<Self> {
-        let blob = workspace.parse_blob(file)?;
-        let oid = blob.object_id()?;
-        let mode = file_stats
-            .get(file)
-            .ok_or_else(|| anyhow::anyhow!("File {} not tracked", file.display()))?
-            .mode
-            .as_str();
-
-        Ok(Self {
-            file: file.to_path_buf(),
-            oid,
-            mode: Some(mode),
-        })
-    }
-
-    pub fn from_nothing(file: &Path) -> anyhow::Result<Self> {
-        Ok(Self {
-            file: file.to_path_buf(),
-            oid: ObjectId::try_parse(NULL_OID_RAW.to_string())?,
-            mode: None,
-        })
-    }
-
-    pub fn diff_path(&self) -> PathBuf {
-        if self.mode.is_some() {
-            self.file.clone()
-        } else {
-            Path::new(NULL_PATH).to_path_buf()
-        }
-    }
-
-    pub fn pretty_mode(&self) -> &'d str {
-        if let Some(mode) = self.mode {
-            mode
-        } else {
-            "100644"
-        }
     }
 }

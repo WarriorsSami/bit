@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 pub type FileStatSet = BTreeMap<PathBuf, EntryMetadata>;
 pub type ChangeSet = BTreeMap<PathBuf, FileChangeType>;
 pub type FileSet = BTreeSet<PathBuf>;
+pub type HeadTree = BTreeMap<PathBuf, DatabaseEntry>;
 
 #[derive(Debug, Clone)]
 pub struct StatusInfo {
@@ -25,6 +26,7 @@ pub struct StatusInfo {
     pub(crate) untracked_changeset: ChangeSet,
     pub(crate) workspace_changeset: ChangeSet,
     pub(crate) index_changeset: ChangeSet,
+    pub(crate) head_tree: HeadTree,
 }
 
 #[derive(new)]
@@ -75,6 +77,7 @@ impl<'r> Status<'r> {
             untracked_changeset,
             workspace_changeset,
             index_changeset,
+            head_tree,
         })
     }
 

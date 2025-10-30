@@ -4,22 +4,24 @@ use assert_fs::TempDir;
 use rstest::rstest;
 
 #[rstest]
-fn show_diff_for_file_with_modified_content_in_workspace(
+fn show_cached_diff_for_file_added_to_index(
     init_repository_dir: TempDir,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = init_repository_dir;
 
-    // modify file 1.txt
-    let file1_spec = FileSpec::new(
-        repository_dir.path().join("1.txt"),
-        "modified one".to_string(),
-    );
-    write_file(file1_spec);
+    // create a new file 4.txt that doesn't exist in HEAD
+    let file4_spec = FileSpec::new(repository_dir.path().join("4.txt"), "four".to_string());
+    write_file(file4_spec);
+
+    // add the new file to the index
+    run_bit_command(repository_dir.path(), &["add", "4.txt"])
+        .assert()
+        .success();
 
     let expected_output =
-        "diff --git a/1.txt b/1.txt\nindex 43dd47e..ba9bbba 100644\n--- a/1.txt\n+++ b/1.txt\n-one\n+modified one\n"
+        "diff --git a/4.txt b/4.txt\nnew file mode 100644\nindex 0000000..ea1f343\n--- /dev/null\n+++ b/4.txt\n+four\n"
             .to_string();
-    let actual_output = run_bit_command(repository_dir.path(), &["diff"])
+    let actual_output = run_bit_command(repository_dir.path(), &["diff", "--cached"])
         .assert()
         .success();
     let stdout = actual_output.get_output().stdout.clone();

@@ -71,6 +71,15 @@ impl Database {
         }
     }
 
+    pub fn parse_object_as_blob(&self, object_id: &ObjectId) -> anyhow::Result<Option<Blob>> {
+        let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
+
+        match object_type {
+            ObjectType::Blob => Ok(Some(Blob::deserialize(object_reader)?)),
+            _ => Ok(None),
+        }
+    }
+
     pub fn parse_object_as_tree(&self, object_id: &ObjectId) -> anyhow::Result<Option<Tree<'_>>> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 

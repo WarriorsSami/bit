@@ -1,6 +1,5 @@
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::index_entry::EntryMetadata;
-use anyhow::anyhow;
 use std::fs::metadata;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -33,7 +32,7 @@ impl Workspace {
 
         // Check if the dir_path exists
         if !dir_path.exists() {
-            return Err(anyhow!("The specified path does not exist: {:?}", dir_path));
+            anyhow::bail!("The specified path does not exist: {:?}", dir_path);
         }
 
         if dir_path.is_dir() {
@@ -42,10 +41,7 @@ impl Workspace {
                 .filter_map(|entry| self.check_if_not_ignored_path(&entry.path()))
                 .collect::<Vec<_>>())
         } else {
-            Err(anyhow!(
-                "The specified path is not a directory: {:?}",
-                dir_path
-            ))
+            anyhow::bail!("The specified path is not a directory: {:?}", dir_path);
         }
     }
 
@@ -58,10 +54,7 @@ impl Workspace {
 
         // Check if the root_file_path exists
         if !root_file_path.exists() {
-            return Err(anyhow!(
-                "The specified path does not exist: {:?}",
-                root_file_path
-            ));
+            anyhow::bail!("The specified path does not exist: {:?}", root_file_path);
         }
 
         if root_file_path.is_dir() {

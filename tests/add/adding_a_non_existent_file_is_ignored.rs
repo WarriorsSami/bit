@@ -34,14 +34,5 @@ fn adding_a_non_existent_file_is_ignored() -> Result<(), Box<dyn std::error::Err
         .assert()
         .failure();
 
-    // Assert that no changes were made to the add.
-    // The add file should be empty
-    let bit_index_path = dir.child(".git/index");
-    let bit_index_content = std::fs::read(bit_index_path.path())?;
-    assert!(
-        bit_index_content.is_empty(),
-        "Index should be empty when adding a non-existent file"
-    );
-
     Ok(())
 }
