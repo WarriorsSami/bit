@@ -1,3 +1,4 @@
+use colored::Colorize;
 use derive_new::new;
 use std::fmt::Display;
 
@@ -52,7 +53,13 @@ where
     T: Clone + Into<String>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_string())
+        let painted_edit = match self {
+            Edit::Delete { .. } => self.as_string().color(colored::Color::Red),
+            Edit::Insert { .. } => self.as_string().color(colored::Color::Green),
+            Edit::Equal { .. } => self.as_string().normal(),
+        };
+
+        write!(f, "{}", painted_edit)
     }
 }
 

@@ -5,6 +5,7 @@ use crate::domain::objects::diff::{DiffAlgorithm, Hunk, MyersDiff};
 use crate::domain::objects::diff_target::DiffTarget;
 use crate::domain::objects::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
 use crate::domain::objects::status::StatusInfo;
+use colored::Colorize;
 use std::path::Path;
 
 impl Repository {
@@ -104,9 +105,8 @@ impl Repository {
 
         writeln!(
             self.writer(),
-            "diff --git {} {}",
-            a.file.display(),
-            b.file.display()
+            "{}",
+            format!("diff --git {} {}", a.file.display(), b.file.display()).bold()
         )?;
         self.print_diff_mode(a, b)?;
         self.print_diff_content(a, b)?;
@@ -116,12 +116,28 @@ impl Repository {
 
     fn print_diff_mode(&self, a: &DiffTarget, b: &DiffTarget) -> anyhow::Result<()> {
         if a.mode.is_none() {
-            writeln!(self.writer(), "new file mode {}", b.pretty_mode())?;
+            writeln!(
+                self.writer(),
+                "{}",
+                format!("new file mode {}", b.pretty_mode()).bold()
+            )?;
         } else if b.mode.is_none() {
-            writeln!(self.writer(), "deleted file mode {}", a.pretty_mode())?;
+            writeln!(
+                self.writer(),
+                "{}",
+                format!("deleted file mode {}", a.pretty_mode()).bold()
+            )?;
         } else if a.mode != b.mode {
-            writeln!(self.writer(), "old mode {}", a.pretty_mode())?;
-            writeln!(self.writer(), "new mode {}", b.pretty_mode())?;
+            writeln!(
+                self.writer(),
+                "{}",
+                format!("old mode {}", a.pretty_mode()).bold()
+            )?;
+            writeln!(
+                self.writer(),
+                "{}",
+                format!("new mode {}", b.pretty_mode()).bold()
+            )?;
         }
 
         Ok(())
@@ -137,9 +153,17 @@ impl Repository {
             oid_range.push_str(format!(" {}", a.pretty_mode()).as_str());
         }
 
-        writeln!(self.writer(), "{oid_range}")?;
-        writeln!(self.writer(), "--- {}", a.diff_path().display())?;
-        writeln!(self.writer(), "+++ {}", b.diff_path().display())?;
+        writeln!(self.writer(), "{}", oid_range.to_string().bold())?;
+        writeln!(
+            self.writer(),
+            "{}",
+            format!("--- {}", a.diff_path().display()).bold()
+        )?;
+        writeln!(
+            self.writer(),
+            "{}",
+            format!("+++ {}", b.diff_path().display()).bold()
+        )?;
 
         let hunks = MyersDiff::new(&a.data, &b.data).flatten_diff();
         for hunk in hunks {
@@ -153,7 +177,11 @@ impl Repository {
         let a_offset = format!("{},{}", hunk.a_start(), hunk.a_size());
         let b_offset = format!("{},{}", hunk.b_start(), hunk.b_size());
 
-        writeln!(self.writer(), "@@ -{a_offset} +{b_offset} @@")?;
+        writeln!(
+            self.writer(),
+            "{}",
+            format!("@@ -{a_offset} +{b_offset} @@").cyan()
+        )?;
 
         for edit in hunk.edits() {
             writeln!(self.writer(), "{}", edit)?;
