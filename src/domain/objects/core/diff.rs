@@ -1,11 +1,19 @@
 use derive_new::new;
 use std::fmt::Display;
 
+type Lines<T> = Vec<Line<T>>;
+
+#[derive(Debug, Clone, PartialEq, Eq, new)]
+pub struct Line<T> {
+    number: usize,
+    value: T,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Edit<T> {
-    Delete { value: T },
-    Insert { value: T },
-    Equal { value: T },
+    Delete { line: Line<T> },
+    Insert { line: Line<T> },
+    Equal { line_a: Line<T>, line_b: Line<T> },
 }
 
 impl<T> Edit<T>
@@ -14,9 +22,27 @@ where
 {
     pub fn as_string(&self) -> String {
         match self {
-            Edit::Delete { value } => format!("-{}", value.clone().into()),
-            Edit::Insert { value } => format!("+{}", value.clone().into()),
-            Edit::Equal { value } => format!(" {}", value.clone().into()),
+            Edit::Delete { line } => format!("-{}", line.value.clone().into()),
+            Edit::Insert { line } => format!("+{}", line.value.clone().into()),
+            Edit::Equal { line_a, .. } => format!(" {}", line_a.value.clone().into()),
+        }
+    }
+}
+
+impl<T> Edit<T> {
+    pub fn line_a(&self) -> &Line<T> {
+        match self {
+            Edit::Delete { line } => line,
+            Edit::Insert { line } => line,
+            Edit::Equal { line_a, .. } => line_a,
+        }
+    }
+
+    pub fn line_b(&self) -> &Line<T> {
+        match self {
+            Edit::Delete { line } => line,
+            Edit::Insert { line } => line,
+            Edit::Equal { line_b, .. } => line_b,
         }
     }
 }
@@ -30,15 +56,54 @@ where
     }
 }
 
-pub trait DiffAlgorithm<'d, T> {
+const HUNK_CONTEXT: isize = 3;
+
+#[derive(Debug, Clone, PartialEq, Eq, new)]
+pub struct Hunk<T> {
+    a_start: usize,
+    b_start: usize,
+    edits: Vec<Edit<T>>,
+}
+
+impl<T> Hunk<T> {
+    pub fn a_start(&self) -> usize {
+        self.a_start
+    }
+
+    pub fn b_start(&self) -> usize {
+        self.b_start
+    }
+
+    pub fn edits(&self) -> &[Edit<T>] {
+        &self.edits
+    }
+
+    pub fn a_size(&self) -> usize {
+        self.edits
+            .iter()
+            .filter(|edit| matches!(edit, Edit::Delete { .. } | Edit::Equal { .. }))
+            .count()
+    }
+
+    pub fn b_size(&self) -> usize {
+        self.edits
+            .iter()
+            .filter(|edit| matches!(edit, Edit::Insert { .. } | Edit::Equal { .. }))
+            .count()
+    }
+}
+
+pub trait DiffAlgorithm<T> {
     type Trace;
     type EditPath;
     type EditScript;
+    type Hunks;
     type Output;
 
     fn compute_shortest_edit(&self) -> Self::Trace;
     fn backtrack(&self) -> Self::EditPath;
     fn diff(&self) -> Self::EditScript;
+    fn flatten_diff(&self) -> Self::Hunks;
     fn format_diff(&self) -> Self::Output
     where
         T: Clone + Into<String>,
@@ -56,16 +121,43 @@ pub trait DiffAlgorithm<'d, T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, new)]
-pub struct MyersDiff<'d, T> {
-    a: &'d [T],
-    b: &'d [T],
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MyersDiff<T> {
+    a: Lines<T>,
+    b: Lines<T>,
 }
 
-impl<'d, T: Eq + Clone> DiffAlgorithm<'d, T> for MyersDiff<'d, T> {
+impl<T: Eq + Clone> MyersDiff<T> {
+    pub fn new(a: &[T], b: &[T]) -> Self {
+        let a_lines = Self::lines(a);
+        let b_lines = Self::lines(b);
+
+        MyersDiff {
+            a: a_lines,
+            b: b_lines,
+        }
+    }
+
+    fn lines(document: &[T]) -> Lines<T>
+    where
+        T: Clone,
+    {
+        document
+            .iter()
+            .enumerate()
+            .map(|(i, v)| Line {
+                number: i + 1,
+                value: v.clone(),
+            })
+            .collect::<Vec<_>>()
+    }
+}
+
+impl<T: Eq + Clone> DiffAlgorithm<T> for MyersDiff<T> {
     type Trace = Vec<Vec<isize>>;
     type EditPath = Vec<(isize, isize, isize, isize)>;
     type EditScript = Vec<Edit<T>>;
+    type Hunks = Vec<Hunk<T>>;
     type Output = String;
 
     fn compute_shortest_edit(&self) -> Self::Trace {
@@ -97,7 +189,7 @@ impl<'d, T: Eq + Clone> DiffAlgorithm<'d, T> for MyersDiff<'d, T> {
                 };
 
                 let mut y = x - k;
-                while x < n && y < m && self.a[x as usize] == self.b[y as usize] {
+                while x < n && y < m && self.a[x as usize].value == self.b[y as usize].value {
                     // snake
                     x += 1;
                     y += 1;
@@ -167,23 +259,21 @@ impl<'d, T: Eq + Clone> DiffAlgorithm<'d, T> for MyersDiff<'d, T> {
             if x == prev_x {
                 // Insert: only y increased
                 if prev_y < self.b.len() as isize {
-                    diff.push(Edit::Insert {
-                        value: self.b[prev_y as usize].clone(),
-                    });
+                    let line_b = self.b[prev_y as usize].clone();
+                    diff.push(Edit::Insert { line: line_b });
                 }
             } else if y == prev_y {
                 // Delete: only x increased
                 if prev_x < self.a.len() as isize {
-                    diff.push(Edit::Delete {
-                        value: self.a[prev_x as usize].clone(),
-                    });
+                    let line_a = self.a[prev_x as usize].clone();
+                    diff.push(Edit::Delete { line: line_a });
                 }
             } else {
                 // Equal: both increased (diagonal move)
                 if prev_x < self.a.len() as isize {
-                    diff.push(Edit::Equal {
-                        value: self.a[prev_x as usize].clone(),
-                    });
+                    let line_a = self.a[prev_x as usize].clone();
+                    let line_b = self.b[prev_y as usize].clone();
+                    diff.push(Edit::Equal { line_a, line_b });
                 }
             }
         }
@@ -191,11 +281,70 @@ impl<'d, T: Eq + Clone> DiffAlgorithm<'d, T> for MyersDiff<'d, T> {
         diff.reverse();
         diff
     }
+
+    fn flatten_diff(&self) -> Self::Hunks {
+        let edits = self.diff();
+
+        let mut hunks = Vec::new();
+        let mut offset = 0_isize;
+
+        let collect_hunk_edits = |offset: &mut isize| -> Vec<Edit<T>> {
+            let mut counter = -1;
+
+            let mut hunk_edits = Vec::new();
+            while counter != 0 {
+                if *offset >= 0 && counter > 0 {
+                    hunk_edits.push(edits[*offset as usize].clone());
+                }
+
+                *offset += 1;
+                if *offset >= edits.len() as isize {
+                    break;
+                }
+
+                if *offset + HUNK_CONTEXT >= edits.len() as isize {
+                    counter -= 1;
+                } else {
+                    match &edits[(*offset + HUNK_CONTEXT) as usize] {
+                        Edit::Delete { .. } | Edit::Insert { .. } => {
+                            counter = 2 * HUNK_CONTEXT + 1;
+                        }
+                        Edit::Equal { .. } => {
+                            counter -= 1;
+                        }
+                    }
+                }
+            }
+
+            hunk_edits
+        };
+
+        loop {
+            while offset < edits.len() as isize
+                && let Edit::Equal { .. } = edits[offset as usize]
+            {
+                offset += 1;
+            }
+
+            if offset >= edits.len() as isize {
+                return hunks;
+            }
+
+            let start_offset = (offset - HUNK_CONTEXT).max(0);
+
+            let a_start = edits[start_offset as usize].line_a().number;
+            let b_start = edits[start_offset as usize].line_b().number;
+
+            offset -= HUNK_CONTEXT + 1;
+
+            hunks.push(Hunk::new(a_start, b_start, collect_hunk_edits(&mut offset)));
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::objects::diff::{DiffAlgorithm, Edit, MyersDiff};
+    use crate::domain::objects::diff::{DiffAlgorithm, Edit, Line, MyersDiff};
     use pretty_assertions::assert_eq;
     use rstest::{fixture, rstest};
 
@@ -217,15 +366,76 @@ mod tests {
         let (a, b) = string_inputs;
         let result = MyersDiff::new(&a, &b).diff();
         let expected = vec![
-            Edit::Delete { value: 'a' },
-            Edit::Delete { value: 'b' },
-            Edit::Equal { value: 'c' },
-            Edit::Insert { value: 'b' },
-            Edit::Equal { value: 'a' },
-            Edit::Equal { value: 'b' },
-            Edit::Delete { value: 'b' },
-            Edit::Equal { value: 'a' },
-            Edit::Insert { value: 'c' },
+            Edit::Delete {
+                line: Line {
+                    number: 1,
+                    value: 'a',
+                },
+            },
+            Edit::Delete {
+                line: Line {
+                    number: 2,
+                    value: 'b',
+                },
+            },
+            Edit::Equal {
+                line_a: Line {
+                    number: 3,
+                    value: 'c',
+                },
+                line_b: Line {
+                    number: 1,
+                    value: 'c',
+                },
+            },
+            Edit::Insert {
+                line: Line {
+                    number: 2,
+                    value: 'b',
+                },
+            },
+            Edit::Equal {
+                line_a: Line {
+                    number: 4,
+                    value: 'a',
+                },
+                line_b: Line {
+                    number: 3,
+                    value: 'a',
+                },
+            },
+            Edit::Equal {
+                line_a: Line {
+                    number: 5,
+                    value: 'b',
+                },
+                line_b: Line {
+                    number: 4,
+                    value: 'b',
+                },
+            },
+            Edit::Delete {
+                line: Line {
+                    number: 6,
+                    value: 'b',
+                },
+            },
+            Edit::Equal {
+                line_a: Line {
+                    number: 7,
+                    value: 'a',
+                },
+                line_b: Line {
+                    number: 5,
+                    value: 'a',
+                },
+            },
+            Edit::Insert {
+                line: Line {
+                    number: 6,
+                    value: 'c',
+                },
+            },
         ];
 
         assert_eq!(result, expected);
@@ -236,14 +446,50 @@ mod tests {
         let (a, b) = file_inputs;
         let result = MyersDiff::new(&a, &b).diff();
         let expected = vec![
-            Edit::Delete { value: "line1" },
-            Edit::Equal { value: "line2" },
-            Edit::Delete { value: "line3" },
-            Edit::Insert {
-                value: "line3_modified",
+            Edit::Delete {
+                line: Line {
+                    number: 1,
+                    value: "line1",
+                },
             },
-            Edit::Equal { value: "line4" },
-            Edit::Insert { value: "line5" },
+            Edit::Equal {
+                line_a: Line {
+                    number: 2,
+                    value: "line2",
+                },
+                line_b: Line {
+                    number: 1,
+                    value: "line2",
+                },
+            },
+            Edit::Delete {
+                line: Line {
+                    number: 3,
+                    value: "line3",
+                },
+            },
+            Edit::Insert {
+                line: Line {
+                    number: 2,
+                    value: "line3_modified",
+                },
+            },
+            Edit::Equal {
+                line_a: Line {
+                    number: 4,
+                    value: "line4",
+                },
+                line_b: Line {
+                    number: 3,
+                    value: "line4",
+                },
+            },
+            Edit::Insert {
+                line: Line {
+                    number: 4,
+                    value: "line5",
+                },
+            },
         ];
 
         assert_eq!(result, expected);

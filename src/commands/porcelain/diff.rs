@@ -1,7 +1,7 @@
 use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
 use crate::domain::areas::workspace::Workspace;
-use crate::domain::objects::diff::{DiffAlgorithm, MyersDiff};
+use crate::domain::objects::diff::{DiffAlgorithm, Hunk, MyersDiff};
 use crate::domain::objects::diff_target::DiffTarget;
 use crate::domain::objects::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
 use crate::domain::objects::status::StatusInfo;
@@ -141,8 +141,21 @@ impl Repository {
         writeln!(self.writer(), "--- {}", a.diff_path().display())?;
         writeln!(self.writer(), "+++ {}", b.diff_path().display())?;
 
-        let edits = MyersDiff::new(&a.data, &b.data).diff();
-        for edit in edits {
+        let hunks = MyersDiff::new(&a.data, &b.data).flatten_diff();
+        for hunk in hunks {
+            self.print_diff_hunk(&hunk)?;
+        }
+
+        Ok(())
+    }
+
+    fn print_diff_hunk(&self, hunk: &Hunk<String>) -> anyhow::Result<()> {
+        let a_offset = format!("{},{}", hunk.a_start(), hunk.a_size());
+        let b_offset = format!("{},{}", hunk.b_start(), hunk.b_size());
+
+        writeln!(self.writer(), "@@ -{a_offset} +{b_offset} @@")?;
+
+        for edit in hunk.edits() {
             writeln!(self.writer(), "{}", edit)?;
         }
 

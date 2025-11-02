@@ -23,7 +23,7 @@ fn show_cached_diff_for_file_with_both_modified_content_and_mode_in_index(
         .success();
 
     let expected_output =
-        "diff --git a/1.txt b/1.txt\nold mode 100644\nnew mode 100755\nindex 43dd47e..ba9bbba\n--- a/1.txt\n+++ b/1.txt\n-one\n+modified one\n"
+        "diff --git a/1.txt b/1.txt\nold mode 100644\nnew mode 100755\nindex 43dd47e..ba9bbba\n--- a/1.txt\n+++ b/1.txt\n@@ -1,1 +1,1 @@\n-one\n+modified one\n"
             .to_string();
     let actual_output = run_bit_command(repository_dir.path(), &["diff", "--cached"])
         .assert()

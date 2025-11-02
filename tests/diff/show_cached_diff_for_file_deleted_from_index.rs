@@ -19,7 +19,7 @@ fn show_cached_diff_for_file_deleted_from_index(
         .failure();
 
     let expected_output =
-        "diff --git a/1.txt b/1.txt\ndeleted file mode 100644\nindex 43dd47e..0000000\n--- a/1.txt\n+++ /dev/null\n-one\n"
+        "diff --git a/1.txt b/1.txt\ndeleted file mode 100644\nindex 43dd47e..0000000\n--- a/1.txt\n+++ /dev/null\n@@ -1,1 +1,0 @@\n-one\n"
             .to_string();
     let actual_output = run_bit_command(repository_dir.path(), &["diff", "--cached"])
         .assert()
