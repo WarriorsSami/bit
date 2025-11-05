@@ -101,7 +101,7 @@ impl TryFrom<&str> for Author {
 
 #[derive(Debug, Clone)]
 pub struct Commit {
-    parent: Option<String>,
+    parent: Option<ObjectId>,
     tree_oid: ObjectId,
     author: Author,
     committer: Author,
@@ -110,7 +110,7 @@ pub struct Commit {
 
 impl Commit {
     pub fn new(
-        parent: Option<String>,
+        parent: Option<ObjectId>,
         tree_oid: ObjectId,
         author: Author,
         message: String,
@@ -139,7 +139,7 @@ impl Packable for Commit {
 
         object_content.push(format!("tree {}", self.tree_oid.as_ref()));
         if let Some(parent) = &self.parent {
-            object_content.push(format!("parent {parent}"));
+            object_content.push(format!("parent {}", parent.as_ref()));
         }
         object_content.push(format!("author {}", self.author.display()));
         object_content.push(format!("committer {}", self.committer.display()));
@@ -182,7 +182,9 @@ impl Unpackable for Commit {
             .next()
             .context("Invalid commit object: missing parent line")?;
         let parent = if parent_line.starts_with("parent ") {
-            Some(parent_line.strip_prefix("parent ").unwrap().to_string())
+            Some(ObjectId::try_parse(
+                parent_line.strip_prefix("parent ").unwrap().to_string(),
+            )?)
         } else {
             None
         };
@@ -225,7 +227,7 @@ impl Object for Commit {
 
         lines.push(format!("tree {}", self.tree_oid.as_ref()));
         if let Some(parent) = &self.parent {
-            lines.push(format!("parent {parent}"));
+            lines.push(format!("parent {}", parent.as_ref()));
         }
         lines.push(format!("author {}", self.author.display()));
         lines.push(format!("committer {}", self.committer.display()));

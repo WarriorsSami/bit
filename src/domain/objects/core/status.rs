@@ -118,12 +118,11 @@ impl<'r> Status<'r> {
     async fn load_head_tree(&self) -> anyhow::Result<BTreeMap<PathBuf, DatabaseEntry>> {
         let mut head_tree = BTreeMap::<PathBuf, DatabaseEntry>::new();
 
-        if let Some(head_ref) = self.repository.refs().read_head() {
-            let head_oid = ObjectId::try_parse(head_ref)?;
+        if let Some(head_ref) = self.repository.refs().read_head()? {
             let commit = self
                 .repository
                 .database()
-                .parse_object_as_commit(&head_oid)?;
+                .parse_object_as_commit(&head_ref)?;
 
             if let Some(commit) = commit {
                 self.repository

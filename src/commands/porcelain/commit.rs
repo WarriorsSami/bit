@@ -17,7 +17,7 @@ impl Repository {
         let store_tree = &|tree: &Tree| self.database().store(tree.clone());
         tree.traverse(store_tree)?;
 
-        let parent = self.refs().read_head();
+        let parent = self.refs().read_head()?;
         let is_root = match parent {
             Some(_) => "",
             None => "(root-commit) ",

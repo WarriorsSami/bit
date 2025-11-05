@@ -1,7 +1,5 @@
 #![allow(dead_code)]
 
-// TODO: refactor test cases to extract common setup code (use Gherkin?)
-
 pub mod command;
 pub mod file;
 

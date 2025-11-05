@@ -16,6 +16,11 @@ impl Repository {
         index.rehydrate()?;
         let status_info = self.status().initialize(&mut index).await?;
 
+        // TODO: fix pager
+        // if atty::is(atty::Stream::Stdout) {
+        //     Pager::with_pager("less -FRX").setup();
+        // }
+
         if !cached {
             self.diff_index_workspace(&status_info, &index, self.workspace())?;
         } else {

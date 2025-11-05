@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::{Parser, Subcommand};
 
 // TODO: improve error handling and messages
+// TODO: improve test harness using snapbox
 
 mod commands;
 mod domain;
@@ -119,6 +120,17 @@ enum Commands {
         )]
         cached: bool,
     },
+    #[command(
+        name = "branch",
+        about = "Create, list, or delete branches",
+        long_about = "This command allows you to create, list, or delete branches in the repository."
+    )]
+    Branch {
+        #[arg(index = 1, help = "The name of the branch to create")]
+        branch_name: String,
+        #[arg(index = 2, help = "Create a new branch from the specified commit")]
+        source_commit: Option<String>,
+    },
 }
 
 #[tokio::main]
@@ -178,6 +190,16 @@ async fn main() -> Result<()> {
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.diff(*cached).await?
+        }
+        Commands::Branch {
+            branch_name,
+            source_commit,
+        } => {
+            let pwd = std::env::current_dir()?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.branch(branch_name.as_str(), source_commit.as_deref())?
         }
     }
 

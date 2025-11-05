@@ -8,11 +8,9 @@ impl Repository {
     // TODO: add support for the recursive flag
     pub async fn ls_tree(&mut self, object_sha: &str, _recursive: bool) -> anyhow::Result<()> {
         let oid = if object_sha == "HEAD" {
-            let head = self
-                .refs()
-                .read_head()
-                .ok_or_else(|| anyhow::anyhow!("HEAD is a symbolic reference"))?;
-            ObjectId::try_parse(head)?
+            self.refs()
+                .read_head()?
+                .ok_or_else(|| anyhow::anyhow!("HEAD is not a symbolic reference"))?
         } else {
             ObjectId::try_parse(object_sha.to_string())?
         };

@@ -1,6 +1,7 @@
 mod add;
 mod commit;
 
+mod branch;
 /// Contains common utilities and setup boilerplate, such as
 /// 1. Scaffolding temp git repo
 /// 2. Creating files with random content
