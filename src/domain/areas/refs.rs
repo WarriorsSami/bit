@@ -1,13 +1,11 @@
 use crate::domain::objects::object_id::ObjectId;
+use crate::domain::objects::revision::is_valid_branch_name;
 use anyhow::Context;
 use derive_new::new;
 use file_guard::Lock;
 use std::io::Write;
 use std::ops::DerefMut;
 use std::path::Path;
-
-const INVALID_BRANCH_NAME_REGEX: &str =
-    r"^\.|\/\.|\.\.|^\/|\/$|\.lock$|@\{|[\x00-\x20\*:\?\[\\~\^\x7f]";
 
 #[derive(Debug, new)]
 pub struct Refs {
@@ -20,16 +18,7 @@ impl Refs {
     }
 
     pub fn read_head(&self) -> anyhow::Result<Option<ObjectId>> {
-        // read HEAD file
-        let head = std::fs::read_to_string(self.head_path())
-            .with_context(|| format!("failed to read HEAD file at {:?}", self.head_path()))?;
-
-        // return the commit_id if it's not a symbolic reference
-        if head.starts_with("ref: ") {
-            Ok(None)
-        } else {
-            Ok(Some(ObjectId::try_parse(head.trim().to_string())?))
-        }
+        self.read_ref_file(self.head_path())
     }
 
     pub fn update_ref_file(&self, path: Box<Path>, oid: ObjectId) -> anyhow::Result<()> {
@@ -54,11 +43,28 @@ impl Refs {
         Ok(())
     }
 
+    // TODO: finish reading ref by branch name
+    // TODO: add branch name as new type
+    pub fn read_ref(&self) {}
+
+    fn read_ref_file(&self, path: Box<Path>) -> anyhow::Result<Option<ObjectId>> {
+        // read the ref file content
+        let content = std::fs::read_to_string(path.clone())
+            .with_context(|| format!("failed to read ref file at {:?}", path))?;
+        let content = content.trim();
+
+        if content.starts_with("ref: ") {
+            Ok(None)
+        } else {
+            Ok(Some(ObjectId::try_parse(content.to_string())?))
+        }
+    }
+
     pub fn create_branch(&self, name: &str) -> anyhow::Result<()> {
         let branch_path = self.heads_path().join(name).into_boxed_path();
 
         // check whether the branch name is valid
-        if !Refs::is_valid_branch_name(name)? {
+        if !is_valid_branch_name(name)? {
             anyhow::bail!("invalid branch name: {}", name);
         }
 
@@ -70,18 +76,6 @@ impl Refs {
         // update the branch ref file with the HEAD content
         let oid = self.read_head()?;
         self.update_ref_file(branch_path, oid.with_context(|| "failed to read HEAD")?)
-    }
-
-    fn is_valid_branch_name(name: &str) -> anyhow::Result<bool> {
-        if name.is_empty() {
-            return Ok(false);
-        }
-
-        let re = regex::Regex::new(INVALID_BRANCH_NAME_REGEX)
-            .with_context(|| format!("invalid branch name regex: {}", INVALID_BRANCH_NAME_REGEX))?;
-
-        // The regex matches INVALID patterns, so return true if it does NOT match
-        Ok(!re.is_match(name))
     }
 
     pub fn head_path(&self) -> Box<Path> {
@@ -99,7 +93,7 @@ impl Refs {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::areas::refs::Refs;
+    use crate::domain::objects::revision::is_valid_branch_name;
     use proptest::proptest;
 
     proptest! {
@@ -108,7 +102,7 @@ mod tests {
             branch_name in "[a-zA-Z0-9_-]+"
         ) {
             // Valid names: alphanumeric, underscore, hyphen
-            assert!(Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -118,7 +112,7 @@ mod tests {
         ) {
             // Valid names can have slashes: feature/branch-name
             let branch_name = format!("{}/{}", prefix, suffix);
-            assert!(Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -127,7 +121,7 @@ mod tests {
         ) {
             // Invalid: starts with dot
             let branch_name = format!(".{}", suffix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -136,7 +130,7 @@ mod tests {
         ) {
             // Invalid: ends with .lock
             let branch_name = format!("{}.lock", prefix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -146,7 +140,7 @@ mod tests {
         ) {
             // Invalid: consecutive dots
             let branch_name = format!("{}..{}", prefix, suffix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -156,7 +150,7 @@ mod tests {
         ) {
             // Invalid: contains /.
             let branch_name = format!("{}/.{}", prefix, suffix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -165,7 +159,7 @@ mod tests {
         ) {
             // Invalid: starts with /
             let branch_name = format!("/{}", suffix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -174,7 +168,7 @@ mod tests {
         ) {
             // Invalid: ends with /
             let branch_name = format!("{}/", prefix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -184,7 +178,7 @@ mod tests {
         ) {
             // Invalid: contains @{
             let branch_name = format!("{}@{{{}}}", prefix, suffix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -194,7 +188,7 @@ mod tests {
         ) {
             // Invalid: contains control characters
             let branch_name = format!("{}\x00{}", prefix, suffix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
 
         #[test]
@@ -205,28 +199,28 @@ mod tests {
         ) {
             // Invalid: contains special characters
             let branch_name = format!("{}{}{}", prefix, special_char, suffix);
-            assert!(!Refs::is_valid_branch_name(&branch_name).unwrap());
+            assert!(!is_valid_branch_name(&branch_name).unwrap());
         }
     }
 
     #[test]
     fn test_is_invalid_branch_name_empty() {
         // Invalid: empty string
-        assert!(!Refs::is_valid_branch_name("").unwrap());
+        assert!(!is_valid_branch_name("").unwrap());
     }
 
     #[test]
     fn test_is_valid_branch_name_simple() {
         // Valid: simple names
-        assert!(Refs::is_valid_branch_name("main").unwrap());
-        assert!(Refs::is_valid_branch_name("feature-123").unwrap());
-        assert!(Refs::is_valid_branch_name("my_branch").unwrap());
+        assert!(is_valid_branch_name("main").unwrap());
+        assert!(is_valid_branch_name("feature-123").unwrap());
+        assert!(is_valid_branch_name("my_branch").unwrap());
     }
 
     #[test]
     fn test_is_valid_branch_name_with_path() {
         // Valid: hierarchical names
-        assert!(Refs::is_valid_branch_name("feature/new-feature").unwrap());
-        assert!(Refs::is_valid_branch_name("bugfix/issue-123").unwrap());
+        assert!(is_valid_branch_name("feature/new-feature").unwrap());
+        assert!(is_valid_branch_name("bugfix/issue-123").unwrap());
     }
 }

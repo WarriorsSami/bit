@@ -23,6 +23,7 @@ colored = "3.0.0"
 pager = "0.16.1"
 atty = "0.2.14"
 regex = "1.11.1"
+phf = { version = "0.12.1", features = ["macros"] }
 
 [dev-dependencies]
 assert_cmd = "2.0.17"
