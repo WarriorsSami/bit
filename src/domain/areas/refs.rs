@@ -1,5 +1,5 @@
+use crate::domain::objects::branch_name::BranchName;
 use crate::domain::objects::object_id::ObjectId;
-use crate::domain::objects::revision::is_valid_branch_name;
 use anyhow::Context;
 use derive_new::new;
 use file_guard::Lock;
@@ -60,13 +60,8 @@ impl Refs {
         }
     }
 
-    pub fn create_branch(&self, name: &str) -> anyhow::Result<()> {
-        let branch_path = self.heads_path().join(name).into_boxed_path();
-
-        // check whether the branch name is valid
-        if !is_valid_branch_name(name)? {
-            anyhow::bail!("invalid branch name: {}", name);
-        }
+    pub fn create_branch(&self, name: BranchName) -> anyhow::Result<()> {
+        let branch_path = self.heads_path().join(name.as_ref()).into_boxed_path();
 
         // check whether another branch with the same already exists
         if branch_path.exists() {
@@ -93,7 +88,7 @@ impl Refs {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::objects::revision::is_valid_branch_name;
+    use crate::domain::objects::branch_name::BranchName;
     use proptest::proptest;
 
     proptest! {
@@ -102,7 +97,7 @@ mod tests {
             branch_name in "[a-zA-Z0-9_-]+"
         ) {
             // Valid names: alphanumeric, underscore, hyphen
-            assert!(is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_ok());
         }
 
         #[test]
@@ -112,7 +107,7 @@ mod tests {
         ) {
             // Valid names can have slashes: feature/branch-name
             let branch_name = format!("{}/{}", prefix, suffix);
-            assert!(is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_ok());
         }
 
         #[test]
@@ -121,7 +116,7 @@ mod tests {
         ) {
             // Invalid: starts with dot
             let branch_name = format!(".{}", suffix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -130,7 +125,7 @@ mod tests {
         ) {
             // Invalid: ends with .lock
             let branch_name = format!("{}.lock", prefix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -140,7 +135,7 @@ mod tests {
         ) {
             // Invalid: consecutive dots
             let branch_name = format!("{}..{}", prefix, suffix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -150,7 +145,7 @@ mod tests {
         ) {
             // Invalid: contains /.
             let branch_name = format!("{}/.{}", prefix, suffix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -159,7 +154,7 @@ mod tests {
         ) {
             // Invalid: starts with /
             let branch_name = format!("/{}", suffix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -168,7 +163,7 @@ mod tests {
         ) {
             // Invalid: ends with /
             let branch_name = format!("{}/", prefix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -178,7 +173,7 @@ mod tests {
         ) {
             // Invalid: contains @{
             let branch_name = format!("{}@{{{}}}", prefix, suffix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -188,7 +183,7 @@ mod tests {
         ) {
             // Invalid: contains control characters
             let branch_name = format!("{}\x00{}", prefix, suffix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
 
         #[test]
@@ -199,28 +194,28 @@ mod tests {
         ) {
             // Invalid: contains special characters
             let branch_name = format!("{}{}{}", prefix, special_char, suffix);
-            assert!(!is_valid_branch_name(&branch_name).unwrap());
+            assert!(BranchName::try_parse(branch_name).is_err());
         }
     }
 
     #[test]
     fn test_is_invalid_branch_name_empty() {
         // Invalid: empty string
-        assert!(!is_valid_branch_name("").unwrap());
+        assert!(BranchName::try_parse("".to_string()).is_err());
     }
 
     #[test]
     fn test_is_valid_branch_name_simple() {
         // Valid: simple names
-        assert!(is_valid_branch_name("main").unwrap());
-        assert!(is_valid_branch_name("feature-123").unwrap());
-        assert!(is_valid_branch_name("my_branch").unwrap());
+        assert!(BranchName::try_parse("main".to_string()).is_ok());
+        assert!(BranchName::try_parse("feature-123".to_string()).is_ok());
+        assert!(BranchName::try_parse("my_branch".to_string()).is_ok());
     }
 
     #[test]
     fn test_is_valid_branch_name_with_path() {
         // Valid: hierarchical names
-        assert!(is_valid_branch_name("feature/new-feature").unwrap());
-        assert!(is_valid_branch_name("bugfix/issue-123").unwrap());
+        assert!(BranchName::try_parse("feature/new-feature".to_string()).is_ok());
+        assert!(BranchName::try_parse("bugfix/issue-123".to_string()).is_ok());
     }
 }

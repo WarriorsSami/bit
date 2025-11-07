@@ -1,27 +1,12 @@
 use crate::domain::areas::repository::Repository;
-use crate::domain::objects::INVALID_BRANCH_NAME_REGEX;
+use crate::domain::objects::branch_name::BranchName;
+use crate::domain::objects::core::{
+    ANCESTOR_REGEX, INVALID_BRANCH_NAME_REGEX, PARENT_REGEX, REF_ALIASES,
+};
 use crate::domain::objects::object_id::ObjectId;
 use anyhow::Context;
 use derive_new::new;
 use std::ops::Deref;
-
-const PARENT_REGEX: &str = r"^(.+)\^$";
-const ANCESTOR_REGEX: &str = r"^(.+)\~(\d+)$";
-const REF_ALIASES: phf::Map<&'static str, &'static str> = phf::phf_map! {
-    "@" => "HEAD",
-};
-
-pub fn is_valid_branch_name(name: &str) -> anyhow::Result<bool> {
-    if name.is_empty() {
-        return Ok(false);
-    }
-
-    let re = regex::Regex::new(INVALID_BRANCH_NAME_REGEX)
-        .with_context(|| format!("invalid branch name regex: {INVALID_BRANCH_NAME_REGEX}"))?;
-
-    // The regex matches INVALID patterns, so return true if it does NOT match
-    Ok(!re.is_match(name))
-}
 
 pub struct Revision<'r> {
     repo: &'r Repository,
@@ -29,7 +14,7 @@ pub struct Revision<'r> {
 
 #[derive(Debug)]
 pub enum RevisionRecord {
-    Ref(String),
+    Ref(BranchName),
     Ancestor(Box<RevisionRecord>, usize),
     Parent(Box<RevisionRecord>),
 }
@@ -41,10 +26,7 @@ impl<'r> Revision<'r> {
     ) -> anyhow::Result<(Self, RevisionRecord)> {
         let revision = Revision::parse(revision_expression)?;
 
-        match revision {
-            Some(revision) => Ok((Self { repo }, revision)),
-            None => anyhow::bail!("invalid revision expression: {revision_expression}"),
-        }
+        Ok((Self { repo }, revision))
     }
 
     // TODO: finish resolving
@@ -54,7 +36,7 @@ impl<'r> Revision<'r> {
     //     }
     // }
 
-    pub fn parse(revision: &str) -> anyhow::Result<Option<RevisionRecord>> {
+    pub fn parse(revision: &str) -> anyhow::Result<RevisionRecord> {
         if regex::Regex::new(PARENT_REGEX)
             .with_context(|| format!("invalid parent regex: {PARENT_REGEX}"))?
             .is_match(revision)
@@ -67,10 +49,7 @@ impl<'r> Revision<'r> {
             let base_rev = &caps[1];
             let base_revision = Revision::parse(base_rev)?;
 
-            match base_revision {
-                Some(base_revision) => Ok(Some(RevisionRecord::Parent(Box::new(base_revision)))),
-                None => Ok(None),
-            }
+            Ok(RevisionRecord::Parent(Box::new(base_revision)))
         } else if regex::Regex::new(ANCESTOR_REGEX)
             .with_context(|| format!("invalid ancestor regex: {ANCESTOR_REGEX}"))?
             .is_match(revision)
@@ -87,18 +66,14 @@ impl<'r> Revision<'r> {
 
             let base_revision = Revision::parse(base_rev)?;
 
-            match base_revision {
-                Some(base_revision) => Ok(Some(RevisionRecord::Ancestor(
-                    Box::new(base_revision),
-                    generations,
-                ))),
-                None => Ok(None),
-            }
-        } else if is_valid_branch_name(revision)? {
-            let resolved_name = *REF_ALIASES.get(revision).unwrap_or(&revision);
-            Ok(Some(RevisionRecord::Ref(resolved_name.to_string())))
+            Ok(RevisionRecord::Ancestor(
+                Box::new(base_revision),
+                generations,
+            ))
         } else {
-            Ok(None)
+            let resolved_name = *REF_ALIASES.get(revision).unwrap_or(&revision);
+            let branch_name = BranchName::try_parse(resolved_name.to_string())?;
+            Ok(RevisionRecord::Ref(branch_name))
         }
     }
 }
@@ -112,9 +87,8 @@ mod tests {
     #[test]
     fn test_parse_simple_ref() {
         let result = Revision::parse("main").unwrap();
-        assert!(result.is_some());
-        if let Some(RevisionRecord::Ref(name)) = result {
-            assert_eq!(name, "main");
+        if let RevisionRecord::Ref(name) = result {
+            assert_eq!(name.as_ref(), "main");
         } else {
             panic!("Expected Ref variant");
         }
@@ -123,9 +97,8 @@ mod tests {
     #[test]
     fn test_parse_head_alias() {
         let result = Revision::parse("@").unwrap();
-        assert!(result.is_some());
-        if let Some(RevisionRecord::Ref(name)) = result {
-            assert_eq!(name, "HEAD");
+        if let RevisionRecord::Ref(name) = result {
+            assert_eq!(name.as_ref(), "HEAD");
         } else {
             panic!("Expected Ref variant");
         }
@@ -134,10 +107,9 @@ mod tests {
     #[test]
     fn test_parse_parent() {
         let result = Revision::parse("main^").unwrap();
-        assert!(result.is_some());
-        if let Some(RevisionRecord::Parent(base)) = result {
+        if let RevisionRecord::Parent(base) = result {
             if let RevisionRecord::Ref(name) = *base {
-                assert_eq!(name, "main");
+                assert_eq!(name.as_ref(), "main");
             } else {
                 panic!("Expected Ref variant in parent");
             }
@@ -149,11 +121,10 @@ mod tests {
     #[test]
     fn test_parse_ancestor() {
         let result = Revision::parse("main~3").unwrap();
-        assert!(result.is_some());
-        if let Some(RevisionRecord::Ancestor(base, generation)) = result {
+        if let RevisionRecord::Ancestor(base, generation) = result {
             assert_eq!(generation, 3);
             if let RevisionRecord::Ref(name) = *base {
-                assert_eq!(name, "main");
+                assert_eq!(name.as_ref(), "main");
             } else {
                 panic!("Expected Ref variant in ancestor");
             }
@@ -165,75 +136,86 @@ mod tests {
     #[test]
     fn test_parse_nested_parent() {
         let result = Revision::parse("main^^").unwrap();
-        assert!(result.is_some());
         // Should be Parent(Parent(Ref("main")))
+        if let RevisionRecord::Parent(first_parent) = result {
+            if let RevisionRecord::Parent(second_parent) = *first_parent {
+                if let RevisionRecord::Ref(name) = *second_parent {
+                    assert_eq!(name.as_ref(), "main");
+                } else {
+                    panic!("Expected Ref at the innermost level");
+                }
+            } else {
+                panic!("Expected second Parent variant");
+            }
+        } else {
+            panic!("Expected first Parent variant");
+        }
     }
 
     #[test]
     fn test_parse_invalid_branch_name_empty() {
-        let result = Revision::parse("").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse("");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_with_space() {
-        let result = Revision::parse("invalid name").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse("invalid name");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_with_colon() {
-        let result = Revision::parse("invalid:name").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse("invalid:name");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_starts_with_dot() {
-        let result = Revision::parse(".invalid").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse(".invalid");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_starts_with_slash() {
-        let result = Revision::parse("/invalid").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse("/invalid");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_ends_with_slash() {
-        let result = Revision::parse("invalid/").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse("invalid/");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_ends_with_lock() {
-        let result = Revision::parse("branch.lock").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse("branch.lock");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_double_dot() {
-        let result = Revision::parse("feature..name").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse("feature..name");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_parent_with_invalid_base() {
-        let result = Revision::parse(".invalid^").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse(".invalid^");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_ancestor_with_invalid_base() {
-        let result = Revision::parse(".invalid~5").unwrap();
-        assert!(result.is_none());
+        let result = Revision::parse(".invalid~5");
+        assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_ancestor_with_zero() {
         let result = Revision::parse("main~0").unwrap();
-        assert!(result.is_some());
-        if let Some(RevisionRecord::Ancestor(_, generation)) = result {
+        if let RevisionRecord::Ancestor(_, generation) = result {
             assert_eq!(generation, 0);
         } else {
             panic!("Expected Ancestor variant");
@@ -243,9 +225,8 @@ mod tests {
     #[test]
     fn test_parse_valid_hierarchical_branch_name() {
         let result = Revision::parse("feature/my-feature").unwrap();
-        assert!(result.is_some());
-        if let Some(RevisionRecord::Ref(name)) = result {
-            assert_eq!(name, "feature/my-feature");
+        if let RevisionRecord::Ref(name) = result {
+            assert_eq!(name.as_ref(), "feature/my-feature");
         } else {
             panic!("Expected Ref variant");
         }
@@ -293,18 +274,17 @@ mod tests {
             let result = Revision::parse(&name);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
-            prop_assert!(parsed.is_some());
-            if let Some(RevisionRecord::Ref(parsed_name)) = parsed {
-                prop_assert_eq!(&parsed_name, &name);
+            if let RevisionRecord::Ref(parsed_name) = parsed {
+                prop_assert_eq!(parsed_name.as_ref(), &name);
+            } else {
+                prop_assert!(false, "Expected Ref variant");
             }
         }
 
         #[test]
         fn prop_invalid_branch_names_fail_to_parse(name in invalid_branch_name_strategy()) {
             let result = Revision::parse(&name);
-            prop_assert!(result.is_ok());
-            let parsed = result.unwrap();
-            prop_assert!(parsed.is_none());
+            prop_assert!(result.is_err());
         }
 
         #[test]
@@ -313,11 +293,15 @@ mod tests {
             let result = Revision::parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
-            prop_assert!(parsed.is_some());
 
-            if let Some(RevisionRecord::Parent(base)) = parsed
-                && let RevisionRecord::Ref(base_name) = *base {
-                    prop_assert_eq!(&base_name, &name);
+            if let RevisionRecord::Parent(base) = parsed {
+                if let RevisionRecord::Ref(base_name) = *base {
+                    prop_assert_eq!(base_name.as_ref(), &name);
+                } else {
+                    prop_assert!(false, "Expected Ref variant in parent");
+                }
+            } else {
+                prop_assert!(false, "Expected Parent variant");
             }
         }
 
@@ -330,12 +314,15 @@ mod tests {
             let result = Revision::parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
-            prop_assert!(parsed.is_some());
-            if let Some(RevisionRecord::Ancestor(base, generation)) = parsed {
+            if let RevisionRecord::Ancestor(base, generation) = parsed {
                 prop_assert_eq!(generation, generations);
                 if let RevisionRecord::Ref(base_name) = *base {
-                    prop_assert_eq!(&base_name, &name);
+                    prop_assert_eq!(base_name.as_ref(), &name);
+                } else {
+                    prop_assert!(false, "Expected Ref variant in ancestor");
                 }
+            } else {
+                prop_assert!(false, "Expected Ancestor variant");
             }
         }
 
@@ -351,19 +338,21 @@ mod tests {
             let result = Revision::parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
-            prop_assert!(parsed.is_some());
 
             // Verify nested structure
             let mut current = parsed;
             for _ in 0..parent_count {
-                if let Some(RevisionRecord::Parent(base)) = current {
-                    current = Some(*base);
+                if let RevisionRecord::Parent(base) = current {
+                    current = *base;
                 } else {
                     prop_assert!(false, "Expected Parent variant");
+                    break;
                 }
             }
-            if let Some(RevisionRecord::Ref(base_name)) = current {
-                prop_assert_eq!(&base_name, &name);
+            if let RevisionRecord::Ref(base_name) = current {
+                prop_assert_eq!(base_name.as_ref(), &name);
+            } else {
+                prop_assert!(false, "Expected Ref variant at innermost level");
             }
         }
 
@@ -375,16 +364,18 @@ mod tests {
             prop_assert!(result2.is_ok());
             // Both should parse the same way
         }
+    }
 
-        #[test]
-        fn prop_alias_resolution_works(name in "@") {
-            let result = Revision::parse(&name);
-            prop_assert!(result.is_ok());
-            let parsed = result.unwrap();
-            prop_assert!(parsed.is_some());
-            if let Some(RevisionRecord::Ref(resolved)) = parsed {
-                prop_assert_eq!(&resolved, "HEAD");
-            }
+    // Separate test for alias resolution (not a property test since it has no inputs)
+    #[test]
+    fn test_alias_resolution_works() {
+        let result = Revision::parse("@");
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        if let RevisionRecord::Ref(resolved) = parsed {
+            assert_eq!(resolved.as_ref(), "HEAD");
+        } else {
+            panic!("Expected Ref variant");
         }
     }
 }

@@ -56,7 +56,7 @@ fn create_branch_with_empty_name(
     run_bit_command(repository_dir.path(), &["branch", ""])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("invalid branch name"));
+        .stderr(predicate::str::contains("branch name cannot be empty"));
 
     Ok(())
 }

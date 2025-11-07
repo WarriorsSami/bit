@@ -1,4 +1,4 @@
-use crate::domain::objects::CHECKSUM_SIZE;
+use crate::domain::objects::core::CHECKSUM_SIZE;
 use anyhow::anyhow;
 use bytes::Bytes;
 use file_guard::FileGuard;
