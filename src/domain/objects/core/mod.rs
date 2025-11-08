@@ -13,6 +13,7 @@ pub mod object_type;
 pub mod revision;
 pub mod status;
 
+pub const OBJECT_ID_LENGTH: usize = 40;
 const CHECKSUM_SIZE: usize = 20; // SHA1 produces a 20-byte hash
 pub const HEADER_SIZE: usize = 12; // 4 bytes for marker, 4 for version, 4 for entries_count
 pub const SIGNATURE: &str = "DIRC"; // Signature for the index file

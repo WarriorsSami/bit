@@ -6,14 +6,15 @@ impl Repository {
     pub fn branch(
         &mut self,
         branch_name: &str,
-        source_revision: Option<&str>,
+        source_refname: Option<&str>,
     ) -> anyhow::Result<()> {
         let branch_name = BranchName::try_parse(branch_name.to_string())?;
 
-        let source_oid = if let Some(source_revision) = source_revision {
-            let (revision_context, parsed_revision) =
-                RevisionContext::initialize(self, source_revision)?;
-            revision_context.resolve(parsed_revision)?
+        let source_oid = if let Some(source_refname) = source_refname {
+            let revision_context = RevisionContext::new(self);
+            let revision = RevisionContext::try_parse(source_refname)?;
+
+            revision_context.resolve(revision)?
         } else {
             self.refs().read_head()?
         }

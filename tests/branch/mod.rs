@@ -1,4 +1,7 @@
 mod create_branch_from_ancestor;
+mod create_branch_from_non_commit_oid_fails;
+mod create_branch_from_oid;
+mod create_branch_from_oid_edge_cases;
 mod create_branch_from_parent;
 mod create_branch_from_ref;
 mod create_branch_with_hierarchical_name;

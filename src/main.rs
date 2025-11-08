@@ -130,14 +130,21 @@ enum Commands {
         branch_name: String,
         #[arg(
             index = 2,
-            help = "Create a new branch from the specified revision, i.e. commit or branch name"
+            help = "Create a new branch from the specified ref name, i.e. commit SHA or branch name"
         )]
-        source_revision: Option<String>,
+        source_refname: Option<String>,
     },
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() {
+    if let Err(err) = run().await {
+        eprintln!("Error: {}", err);
+        std::process::exit(1);
+    }
+}
+
+async fn run() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
@@ -196,13 +203,13 @@ async fn main() -> Result<()> {
         }
         Commands::Branch {
             branch_name,
-            source_revision,
+            source_refname,
         } => {
             let pwd = std::env::current_dir()?;
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.branch(branch_name.as_str(), source_revision.as_deref())?
+            repository.branch(branch_name.as_str(), source_refname.as_deref())?
         }
     }
 

@@ -43,3 +43,9 @@ impl TryFrom<&str> for ObjectType {
         }
     }
 }
+
+impl std::fmt::Display for ObjectType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_str())
+    }
+}

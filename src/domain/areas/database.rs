@@ -193,4 +193,91 @@ impl Database {
     fn generate_temp_name() -> String {
         format!("tmp-obj-{}", rand::random::<u32>())
     }
+
+    /// Find all objects whose OID starts with the given prefix.
+    ///
+    /// This method searches the object database for all objects whose OID begins
+    /// with the specified prefix. It's used to resolve abbreviated OIDs to their
+    /// full form.
+    ///
+    /// # Arguments
+    ///
+    /// * `prefix` - A hexadecimal string prefix (e.g., "abc", "a1b2c3")
+    ///
+    /// # Returns
+    ///
+    /// A vector of all matching ObjectIds. If no matches are found, returns an empty vector.
+    /// If multiple matches are found, all are returned (indicating an ambiguous prefix).
+    ///
+    /// # Performance
+    ///
+    /// - For prefixes of 2+ characters, only searches the specific directory
+    /// - For prefixes of 0-1 characters, must search all directories (slower)
+    pub fn find_objects_by_prefix(&self, prefix: &str) -> anyhow::Result<Vec<ObjectId>> {
+        let mut matches = Vec::new();
+
+        // Determine which directory to search
+        // If prefix is less than 2 chars, we'd need to search all dirs (0-ff)
+        // If prefix is 2+ chars, we only search the specific directory
+        if prefix.len() >= 2 {
+            let dir_name = &prefix[..2];
+            let file_prefix = &prefix[2..];
+            let dir_path = self.path.join(dir_name);
+
+            if dir_path.exists() && dir_path.is_dir() {
+                for entry in std::fs::read_dir(&dir_path)? {
+                    let entry = entry?;
+                    let file_name = entry.file_name();
+                    let file_name_str = file_name.to_string_lossy();
+
+                    if file_name_str.starts_with(file_prefix) {
+                        let full_oid = format!("{}{}", dir_name, file_name_str);
+                        if let Ok(oid) = ObjectId::try_parse(full_oid) {
+                            matches.push(oid);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Search all directories
+            for i in 0..=255 {
+                let dir_name = format!("{:02x}", i);
+                let dir_path = self.path.join(&dir_name);
+
+                if dir_path.exists() && dir_path.is_dir() {
+                    for entry in std::fs::read_dir(&dir_path)? {
+                        let entry = entry?;
+                        let file_name = entry.file_name();
+                        let file_name_str = file_name.to_string_lossy();
+                        let full_oid = format!("{}{}", dir_name, file_name_str);
+
+                        if full_oid.starts_with(prefix) {
+                            let oid = ObjectId::try_parse(full_oid)?;
+                            matches.push(oid);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(matches)
+    }
+
+    /// Get the type of an object as a string.
+    ///
+    /// Returns the object type ("blob", "tree", or "commit") for the given object ID.
+    /// This is useful for displaying object information to the user, especially when
+    /// showing ambiguous OID candidates.
+    ///
+    /// # Arguments
+    ///
+    /// * `object_id` - The full object ID to check
+    ///
+    /// # Returns
+    ///
+    /// A string representing the object type: "blob", "tree", or "commit"
+    pub fn get_object_type(&self, object_id: &ObjectId) -> anyhow::Result<ObjectType> {
+        let (object_type, _) = self.parse_object_as_bytes(object_id)?;
+        Ok(object_type)
+    }
 }
