@@ -19,7 +19,7 @@ fn create_branch_without_commits(
     run_bit_command(repository_dir.path(), &["branch", branch_name])
         .assert()
         .failure()
-        .stderr(predicate::str::contains("failed to read HEAD"));
+        .stderr(predicate::str::contains("no current HEAD to branch from"));
 
     // assert the branch ref does NOT exist
     let branch_ref_path = repository_dir

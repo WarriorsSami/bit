@@ -1,3 +1,6 @@
+mod create_branch_from_ancestor;
+mod create_branch_from_parent;
+mod create_branch_from_ref;
 mod create_branch_with_hierarchical_name;
 mod create_branch_with_invalid_name;
 mod create_branch_with_valid_name;

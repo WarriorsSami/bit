@@ -43,9 +43,19 @@ impl Refs {
         Ok(())
     }
 
-    // TODO: finish reading ref by branch name
-    // TODO: add branch name as new type
-    pub fn read_ref(&self) {}
+    pub fn read_ref(&self, branch_name: BranchName) -> anyhow::Result<Option<ObjectId>> {
+        let ref_path = self.find_path_to_branch(branch_name)?;
+        self.read_ref_file(ref_path)
+    }
+
+    fn find_path_to_branch(&self, branch_name: BranchName) -> anyhow::Result<Box<Path>> {
+        // search for the branch ref file in .git, .git/refs and .git/refs/heads
+        [self.path.clone(), self.refs_path(), self.heads_path()]
+            .iter()
+            .map(|base_path| base_path.join(branch_name.as_ref()).into_boxed_path())
+            .find(|path| path.exists())
+            .ok_or_else(|| anyhow::anyhow!("branch {} not found", branch_name))
+    }
 
     fn read_ref_file(&self, path: Box<Path>) -> anyhow::Result<Option<ObjectId>> {
         // read the ref file content
@@ -60,7 +70,7 @@ impl Refs {
         }
     }
 
-    pub fn create_branch(&self, name: BranchName) -> anyhow::Result<()> {
+    pub fn create_branch(&self, name: BranchName, source_oid: ObjectId) -> anyhow::Result<()> {
         let branch_path = self.heads_path().join(name.as_ref()).into_boxed_path();
 
         // check whether another branch with the same already exists
@@ -68,9 +78,7 @@ impl Refs {
             anyhow::bail!("branch {} already exists", name);
         }
 
-        // update the branch ref file with the HEAD content
-        let oid = self.read_head()?;
-        self.update_ref_file(branch_path, oid.with_context(|| "failed to read HEAD")?)
+        self.update_ref_file(branch_path, source_oid)
     }
 
     pub fn head_path(&self) -> Box<Path> {

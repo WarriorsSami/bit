@@ -131,6 +131,10 @@ impl Commit {
     pub fn tree_oid(&self) -> &ObjectId {
         &self.tree_oid
     }
+
+    pub fn parent(&self) -> Option<&ObjectId> {
+        self.parent.as_ref()
+    }
 }
 
 impl Packable for Commit {

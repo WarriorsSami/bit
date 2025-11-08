@@ -166,3 +166,96 @@ pub fn bit_commit(dir: &Path, message: &str) -> Command {
     ]);
     cmd
 }
+
+/// Get the parent commit ID of a given commit by using git cat-file
+pub fn get_parent_commit_id(
+    dir: &Path,
+    commit_id: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let output = run_git_command(dir, &["cat-file", "commit", commit_id]).output()?;
+
+    let stdout = String::from_utf8(output.stdout)?;
+
+    // Find the parent line
+    for line in stdout.lines() {
+        if let Some(oid) = line.strip_prefix("parent ") {
+            return Ok(oid.to_string());
+        }
+    }
+
+    Err("No parent found".into())
+}
+
+/// Get the Nth ancestor of a commit
+pub fn get_ancestor_commit_id(
+    dir: &Path,
+    commit_id: &str,
+    generations: usize,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut current = commit_id.to_string();
+    for _ in 0..generations {
+        current = get_parent_commit_id(dir, &current)?;
+    }
+    Ok(current)
+}
+
+#[fixture]
+pub fn repository_with_multiple_commits(repository_dir: TempDir) -> TempDir {
+    run_bit_command(repository_dir.path(), &["init"])
+        .assert()
+        .success();
+
+    // First commit
+    let file1 = FileSpec::new(
+        repository_dir.path().join("file1.txt"),
+        "content 1".to_string(),
+    );
+    write_file(file1);
+    run_bit_command(repository_dir.path(), &["add", "."])
+        .assert()
+        .success();
+    bit_commit(repository_dir.path(), "First commit")
+        .assert()
+        .success();
+
+    // Second commit
+    let file2 = FileSpec::new(
+        repository_dir.path().join("file2.txt"),
+        "content 2".to_string(),
+    );
+    write_file(file2);
+    run_bit_command(repository_dir.path(), &["add", "."])
+        .assert()
+        .success();
+    bit_commit(repository_dir.path(), "Second commit")
+        .assert()
+        .success();
+
+    // Third commit
+    let file3 = FileSpec::new(
+        repository_dir.path().join("file3.txt"),
+        "content 3".to_string(),
+    );
+    write_file(file3);
+    run_bit_command(repository_dir.path(), &["add", "."])
+        .assert()
+        .success();
+    bit_commit(repository_dir.path(), "Third commit")
+        .assert()
+        .success();
+
+    // Fourth commit
+    let file4 = FileSpec::new(
+        repository_dir.path().join("file4.txt"),
+        "content 4".to_string(),
+    );
+    write_file(file4);
+    run_bit_command(repository_dir.path(), &["add", "."])
+        .assert()
+        .success();
+    bit_commit(repository_dir.path(), "Fourth commit")
+        .assert()
+        .success();
+
+    repository_dir
+}

@@ -128,8 +128,11 @@ enum Commands {
     Branch {
         #[arg(index = 1, help = "The name of the branch to create")]
         branch_name: String,
-        #[arg(index = 2, help = "Create a new branch from the specified commit")]
-        source_commit: Option<String>,
+        #[arg(
+            index = 2,
+            help = "Create a new branch from the specified revision, i.e. commit or branch name"
+        )]
+        source_revision: Option<String>,
     },
 }
 
@@ -193,13 +196,13 @@ async fn main() -> Result<()> {
         }
         Commands::Branch {
             branch_name,
-            source_commit,
+            source_revision,
         } => {
             let pwd = std::env::current_dir()?;
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.branch(branch_name.as_str(), source_commit.as_deref())?
+            repository.branch(branch_name.as_str(), source_revision.as_deref())?
         }
     }
 
