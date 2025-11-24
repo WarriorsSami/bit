@@ -2,7 +2,7 @@ use crate::domain::objects::core::entry_mode::EntryMode;
 use crate::domain::objects::object_id::ObjectId;
 use derive_new::new;
 
-#[derive(Debug, Clone, new)]
+#[derive(Debug, Clone, PartialEq, new)]
 pub struct DatabaseEntry {
     pub oid: ObjectId,
     pub mode: EntryMode,

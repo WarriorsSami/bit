@@ -4,27 +4,89 @@ use crate::domain::areas::workspace::Workspace;
 use crate::domain::objects::diff::{DiffAlgorithm, Hunk, MyersDiff};
 use crate::domain::objects::diff_target::DiffTarget;
 use crate::domain::objects::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
+use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::status::StatusInfo;
+use crate::domain::objects::tree_diff::{DiffFilter, TreeDiff};
 use colored::Colorize;
 use std::path::Path;
 
 impl Repository {
-    pub async fn diff(&mut self, cached: bool) -> anyhow::Result<()> {
+    pub async fn diff(
+        &mut self,
+        cached: bool,
+        name_status: bool,
+        diff_filter: Option<&str>,
+        commit_a: Option<&str>,
+        commit_b: Option<&str>,
+    ) -> anyhow::Result<()> {
+        // TODO: fix pager
+        // if atty::is(atty::Stream::Stdout) {
+        //     Pager::with_pager("less -FRX").setup();
+        // }
+
+        // If both commits are provided, compare them
+        if let (Some(commit_a), Some(commit_b)) = (commit_a, commit_b) {
+            // parse raw commit SHA to OID
+            let commit_a = ObjectId::try_parse(String::from(commit_a))?;
+            let commit_b = ObjectId::try_parse(String::from(commit_b))?;
+
+            // parse raw diff filter to DiffFilter
+            let diff_filter = if let Some(filter) = diff_filter {
+                DiffFilter::try_parse(filter)
+            } else {
+                None
+            };
+
+            return self
+                .diff_commits(commit_a, commit_b, name_status, diff_filter)
+                .await;
+        }
+
         let index = self.index();
         let mut index = index.lock().await;
 
         index.rehydrate()?;
         let status_info = self.status().initialize(&mut index).await?;
 
-        // TODO: fix pager
-        // if atty::is(atty::Stream::Stdout) {
-        //     Pager::with_pager("less -FRX").setup();
-        // }
-
         if !cached {
             self.diff_index_workspace(&status_info, &index, self.workspace())?;
         } else {
             self.diff_head_index(&status_info, &index)?;
+        }
+
+        Ok(())
+    }
+
+    async fn diff_commits(
+        &self,
+        commit_a: ObjectId,
+        commit_b: ObjectId,
+        name_status: bool,
+        diff_filter: Option<DiffFilter>,
+    ) -> anyhow::Result<()> {
+        let mut tree_diff = TreeDiff::new(self);
+        tree_diff.compare_oids(Some(commit_a), Some(commit_b), Path::new(""))?;
+        let changeset = tree_diff.changes();
+
+        for (path, change_type) in changeset {
+            // Apply diff filter if specified
+            if let Some(filter) = diff_filter
+                && !change_type.matches_filter(filter)
+            {
+                continue;
+            }
+
+            if name_status {
+                // Print in name-status format: <status>\t<path>
+                writeln!(
+                    self.writer(),
+                    "{}\t{}",
+                    change_type.status_char(),
+                    path.display()
+                )?;
+            } else {
+                writeln!(self.writer(), "Not implemented yet")?;
+            }
         }
 
         Ok(())

@@ -1,6 +1,6 @@
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::commit::Commit;
-use crate::domain::objects::object::{Object, Unpackable};
+use crate::domain::objects::object::{Object, ObjectBox, Unpackable};
 use crate::domain::objects::object_id::ObjectId;
 use crate::domain::objects::object_type::ObjectType;
 use crate::domain::objects::tree::Tree;
@@ -52,21 +52,23 @@ impl Database {
         Ok(())
     }
 
-    pub fn parse_object(&self, object_id: &ObjectId) -> anyhow::Result<Box<dyn Object>> {
+    pub fn parse_object(&self, object_id: &ObjectId) -> anyhow::Result<ObjectBox<'_>> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
         match object_type {
             ObjectType::Blob => {
                 // parse as blob
-                Ok(Box::new(Blob::deserialize(object_reader)?))
+                Ok(ObjectBox::Blob(Box::new(Blob::deserialize(object_reader)?)))
             }
             ObjectType::Tree => {
                 // parse as tree
-                Ok(Box::new(Tree::deserialize(object_reader)?))
+                Ok(ObjectBox::Tree(Box::new(Tree::deserialize(object_reader)?)))
             }
             ObjectType::Commit => {
                 // parse as commit
-                Ok(Box::new(Commit::deserialize(object_reader)?))
+                Ok(ObjectBox::Commit(Box::new(Commit::deserialize(
+                    object_reader,
+                )?)))
             }
         }
     }

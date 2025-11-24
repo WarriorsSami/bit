@@ -12,6 +12,7 @@ pub mod object_id;
 pub mod object_type;
 pub mod revision;
 pub mod status;
+pub mod tree_diff;
 
 pub const OBJECT_ID_LENGTH: usize = 40;
 const CHECKSUM_SIZE: usize = 20; // SHA1 produces a 20-byte hash

@@ -1,5 +1,8 @@
+use crate::domain::objects::blob::Blob;
+use crate::domain::objects::commit::Commit;
 use crate::domain::objects::core::object_id::ObjectId;
 use crate::domain::objects::core::object_type::ObjectType;
+use crate::domain::objects::tree::Tree;
 use anyhow::Result;
 use bytes::Bytes;
 use sha1::{Digest, Sha1};
@@ -35,4 +38,10 @@ pub trait Object: Packable {
     fn object_path(&self) -> Result<PathBuf> {
         Ok(self.object_id()?.to_path())
     }
+}
+
+pub enum ObjectBox<'o> {
+    Blob(Box<Blob>),
+    Tree(Box<Tree<'o>>),
+    Commit(Box<Commit>),
 }

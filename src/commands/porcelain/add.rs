@@ -2,6 +2,7 @@ use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
 use crate::domain::objects::index_entry::IndexEntry;
 use crate::domain::objects::object::Object;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 impl Repository {
@@ -48,7 +49,10 @@ impl Repository {
             .flatten()
             .collect::<Vec<_>>();
 
-        for path in valid_paths {
+        // Collect workspace files into a set for deletion check later
+        let workspace_files: HashSet<PathBuf> = valid_paths.iter().map(|p| (*p).clone()).collect();
+
+        for path in &valid_paths {
             let data = self.workspace().read_file(path)?;
             let stat = self.workspace().stat_file(path)?;
 
@@ -57,6 +61,24 @@ impl Repository {
 
             self.database().store(blob)?;
             index.add(IndexEntry::new(path.to_path_buf(), blob_id, stat))?;
+        }
+
+        // Handle deletions: Check if tracked files in the index no longer exist in the workspace
+        // For each provided path, get all tracked files under that path from the index
+        // and remove ones that don't exist in the workspace
+        for path_str in paths
+            .iter()
+            .filter_map(|(p, files)| if files.is_ok() { Some(*p) } else { None })
+        {
+            let path = PathBuf::from(path_str);
+            let tracked_files = index.entries_under_path(&path);
+
+            for tracked_file in tracked_files {
+                if !workspace_files.contains(&tracked_file) {
+                    // File was tracked but no longer exists in workspace - remove it
+                    index.remove(tracked_file)?;
+                }
+            }
         }
 
         index.write_updates()?;

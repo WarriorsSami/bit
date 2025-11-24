@@ -119,6 +119,17 @@ enum Commands {
             help = "Compare the index to the last commit (HEAD) instead of the working tree"
         )]
         cached: bool,
+        #[arg(long, help = "Show only the names and status of changed files")]
+        name_status: bool,
+        #[arg(
+            long,
+            help = "Filter the diff output by file status (e.g., A for added, D for deleted, M for modified)"
+        )]
+        diff_filter: Option<String>,
+        #[arg(index = 1, help = "The first commit SHA to compare (optional)")]
+        commit_a: Option<String>,
+        #[arg(index = 2, help = "The second commit SHA to compare (optional)")]
+        commit_b: Option<String>,
     },
     #[command(
         name = "branch",
@@ -194,12 +205,26 @@ async fn run() -> Result<()> {
 
             repository.display_status(*porcelain).await?
         }
-        Commands::Diff { cached } => {
+        Commands::Diff {
+            cached,
+            name_status,
+            diff_filter,
+            commit_a,
+            commit_b,
+        } => {
             let pwd = std::env::current_dir()?;
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.diff(*cached).await?
+            repository
+                .diff(
+                    *cached,
+                    *name_status,
+                    diff_filter.as_deref(),
+                    commit_a.as_deref(),
+                    commit_b.as_deref(),
+                )
+                .await?
         }
         Commands::Branch {
             branch_name,

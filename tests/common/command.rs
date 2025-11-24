@@ -199,6 +199,21 @@ pub fn get_ancestor_commit_id(
     Ok(current)
 }
 
+/// Get the current HEAD commit SHA
+pub fn get_head_commit_sha(dir: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let head_path = dir.join(".git").join("HEAD");
+    let head_content = std::fs::read_to_string(head_path)?;
+
+    // HEAD file contains either a commit SHA or a ref like "ref: refs/heads/main"
+    if let Some(ref_path) = head_content.strip_prefix("ref: ") {
+        let ref_file = dir.join(".git").join(ref_path.trim());
+        let commit_sha = std::fs::read_to_string(ref_file)?;
+        Ok(commit_sha.trim().to_string())
+    } else {
+        Ok(head_content.trim().to_string())
+    }
+}
+
 #[fixture]
 pub fn repository_with_multiple_commits(repository_dir: TempDir) -> TempDir {
     run_bit_command(repository_dir.path(), &["init"])

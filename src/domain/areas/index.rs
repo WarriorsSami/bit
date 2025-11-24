@@ -236,4 +236,19 @@ impl Index {
     pub fn into_entries(self) -> impl Iterator<Item = IndexEntry> {
         self.entries.into_values()
     }
+
+    pub fn entries_under_path(&self, path: &Path) -> Vec<PathBuf> {
+        self.entries
+            .keys()
+            .filter(|entry_path| {
+                // If path is ".", include all entries
+                if path == Path::new(".") {
+                    return true;
+                }
+                // Otherwise, check if the entry is under the given path
+                entry_path.starts_with(path) || entry_path.as_ref() == path
+            })
+            .map(|p| p.to_path_buf())
+            .collect()
+    }
 }
