@@ -145,6 +145,16 @@ enum Commands {
         )]
         source_refname: Option<String>,
     },
+    #[command(
+        name = "checkout",
+        about = "Switch branches or restore working tree files",
+        long_about = "This command checks out a specified revision, \
+        updating the working directory and the index to match the state of that revision."
+    )]
+    Checkout {
+        #[arg(index = 1, help = "The target revision to checkout")]
+        target_revision: String,
+    },
 }
 
 #[tokio::main]
@@ -235,6 +245,13 @@ async fn run() -> Result<()> {
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.branch(branch_name.as_str(), source_refname.as_deref())?
+        }
+        Commands::Checkout { target_revision } => {
+            let pwd = std::env::current_dir()?;
+            let mut repository =
+                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.checkout(target_revision.as_str()).await?
         }
     }
 
