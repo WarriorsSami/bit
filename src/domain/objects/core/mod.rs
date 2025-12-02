@@ -7,6 +7,7 @@ pub mod entry_mode;
 pub mod file_change;
 pub mod index_entry;
 pub mod index_header;
+pub mod inspector;
 pub mod migration;
 pub mod object;
 pub mod object_id;

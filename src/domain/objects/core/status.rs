@@ -1,6 +1,7 @@
 use crate::domain::areas::index::Index;
 use crate::domain::areas::repository::Repository;
 use crate::domain::objects::blob::Blob;
+use crate::domain::objects::core::inspector::Inspector;
 use crate::domain::objects::database_entry::DatabaseEntry;
 use crate::domain::objects::file_change::{
     FileChange, FileChangeType, IndexChangeType, WorkspaceChangeType,
@@ -39,10 +40,19 @@ impl<'r> Status<'r> {
         let mut file_stats = BTreeMap::<PathBuf, EntryMetadata>::new();
         let mut untracked_files = BTreeSet::<PathBuf>::new();
 
-        self.scan_workspace(None, &mut untracked_files, &mut file_stats, index)
-            .await?;
+        let inspector = Inspector::new(self.repository);
+
+        self.scan_workspace(
+            None,
+            &mut untracked_files,
+            &mut file_stats,
+            index,
+            &inspector,
+        )
+        .await?;
         let head_tree = self.load_head_tree().await?;
-        let mut changed_files = self.check_index_entries(&file_stats, &head_tree, index);
+        let mut changed_files =
+            self.check_index_entries(&file_stats, &head_tree, index, &inspector)?;
         self.collect_deleted_head_files(&head_tree, index, &mut changed_files);
 
         let untracked_changeset = untracked_files
@@ -87,19 +97,26 @@ impl<'r> Status<'r> {
         untracked_files: &mut BTreeSet<PathBuf>,
         file_stats: &mut BTreeMap<PathBuf, EntryMetadata>,
         index: &Index,
+        inspector: &Inspector<'_>,
     ) -> anyhow::Result<()> {
         let files = self.repository.workspace().list_dir(prefix_path)?;
 
         for path in files.iter() {
             if index.is_directly_tracked(path) {
                 if path.is_dir() {
-                    Box::pin(self.scan_workspace(Some(path), untracked_files, file_stats, index))
-                        .await?;
+                    Box::pin(self.scan_workspace(
+                        Some(path),
+                        untracked_files,
+                        file_stats,
+                        index,
+                        inspector,
+                    ))
+                    .await?;
                 } else {
                     let stat = self.repository.workspace().stat_file(path)?;
                     file_stats.insert(path.clone(), stat);
                 }
-            } else if !self.is_indirectly_tracked(path, index)? {
+            } else if !inspector.is_indirectly_tracked(path, index)? {
                 // add the file separator if it's a directory
                 let path = if path.is_dir() {
                     let mut p = path.clone();
@@ -139,84 +156,86 @@ impl<'r> Status<'r> {
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
         index: &mut Index,
-    ) -> BTreeMap<PathBuf, FileChange> {
+        inspector: &Inspector<'_>,
+    ) -> anyhow::Result<BTreeMap<PathBuf, FileChange>> {
         let mut changed_files = BTreeMap::<PathBuf, FileChange>::new();
+        let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
 
-        self.check_index_against_workspace(file_stats, index, &mut changed_files);
-        self.check_index_against_head(head_tree, index, &mut changed_files);
+        for entry in index_entries {
+            self.check_index_entry_against_workspace(
+                &entry,
+                file_stats,
+                index,
+                inspector,
+                &mut changed_files,
+            )?;
+            self.check_index_entry_against_head_tree(
+                &entry,
+                head_tree,
+                inspector,
+                &mut changed_files,
+            )?;
+        }
 
-        changed_files
+        Ok(changed_files)
     }
 
-    fn check_index_against_workspace(
+    fn check_index_entry_against_workspace(
         &self,
+        index_entry: &IndexEntry,
         file_stats: &BTreeMap<PathBuf, EntryMetadata>,
         index: &mut Index,
+        inspector: &Inspector<'_>,
         changed_files: &mut BTreeMap<PathBuf, FileChange>,
-    ) {
-        // TODO: optimize by avoiding cloning all entries
-        let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
+    ) -> anyhow::Result<()> {
+        let stat = file_stats.get(&index_entry.name);
+        let status = inspector.check_index_against_workspace(index_entry, stat)?;
 
-        let modified_files = index_entries
-            .into_iter()
-            .filter_map(|entry| {
-                if let Some(stat) = file_stats.get(&entry.name) {
-                    Some((entry, stat))
-                } else {
-                    // file deleted
-                    changed_files
-                        .entry(entry.name.clone())
-                        .or_default()
-                        .workspace_change = WorkspaceChangeType::Deleted;
-
-                    None
-                }
-            })
-            .filter_map(|(index_entry, workspace_stat)| {
-                match index_entry.stat_match(workspace_stat) {
-                    true if index_entry.times_match(workspace_stat) => None,
-                    true => self.is_content_changed(&index_entry).ok().map(|changed| {
-                        if changed {
-                            Some(index_entry.name.clone())
-                        } else {
-                            index.update_entry_stat(&index_entry, workspace_stat.clone());
-                            None
-                        }
-                    })?,
-                    false => Some(index_entry.name.clone()),
-                }
-            })
-            .collect::<Vec<_>>();
-
-        for path in modified_files {
-            changed_files.entry(path).or_default().workspace_change = WorkspaceChangeType::Modified;
+        if status != WorkspaceChangeType::None {
+            self.record_workspace_change(index_entry.name.clone(), status, changed_files);
+        } else if let Some(stat) = stat {
+            index.update_entry_stat(index_entry, stat.clone());
         }
+
+        Ok(())
     }
 
-    fn check_index_against_head(
+    fn record_workspace_change(
         &self,
-        head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
-        index: &mut Index,
+        entry_path: PathBuf,
+        change: WorkspaceChangeType,
         changed_files: &mut BTreeMap<PathBuf, FileChange>,
     ) {
-        // TODO: optimize by avoiding cloning all entries
-        let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
+        changed_files
+            .entry(entry_path)
+            .or_default()
+            .workspace_change = change;
+    }
 
-        index_entries.into_iter().for_each(|entry| {
-            if let Some(head_entry) = head_tree.get(&entry.name)
-                && (head_entry.mode != entry.metadata.mode || head_entry.oid != entry.oid)
-            {
-                changed_files
-                    .entry(entry.name.clone())
-                    .or_default()
-                    .index_change = IndexChangeType::Modified;
-            } else if !head_tree.contains_key(&entry.name) {
-                changed_files
-                    .entry(entry.name.clone())
-                    .or_default()
-                    .index_change = IndexChangeType::Added;
-            }
-        });
+    fn check_index_entry_against_head_tree(
+        &self,
+        index_entry: &IndexEntry,
+        head_tree: &BTreeMap<PathBuf, DatabaseEntry>,
+        inspector: &Inspector<'_>,
+        changed_files: &mut BTreeMap<PathBuf, FileChange>,
+    ) -> anyhow::Result<()> {
+        let head_entry = head_tree.get(&index_entry.name);
+        let status = inspector.check_index_against_head_tree(index_entry, head_entry)?;
+
+        if status != IndexChangeType::None {
+            self.record_index_change(index_entry.name.clone(), status, changed_files);
+        }
+
+        Ok(())
+    }
+
+    fn record_index_change(
+        &self,
+        entry_path: PathBuf,
+        change: IndexChangeType,
+        changed_files: &mut BTreeMap<PathBuf, FileChange>,
+    ) {
+        changed_files.entry(entry_path).or_default().index_change = change;
     }
 
     fn collect_deleted_head_files(
@@ -231,31 +250,5 @@ impl<'r> Status<'r> {
                     IndexChangeType::Deleted;
             }
         });
-    }
-
-    fn is_content_changed(&self, index_entry: &IndexEntry) -> anyhow::Result<bool> {
-        let blob = self.repository.workspace().parse_blob(&index_entry.name)?;
-        let oid = blob.object_id()?;
-
-        Ok(oid != index_entry.oid)
-    }
-
-    fn is_indirectly_tracked(&self, path: &Path, index: &Index) -> anyhow::Result<bool> {
-        if path.is_file() {
-            return Ok(index.is_directly_tracked(path));
-        }
-
-        let paths = self.repository.workspace().list_dir(Some(path))?;
-        let files = paths.iter().filter(|p| p.is_file());
-        let dirs = paths.iter().filter(|p| p.is_dir());
-
-        let mut paths = files.chain(dirs);
-
-        // chain the iterators and check if any of the files or directories are indirectly tracked
-        if paths.clone().count() == 0 {
-            Ok(true)
-        } else {
-            Ok(paths.any(|p| self.is_indirectly_tracked(p, index).unwrap_or(false)))
-        }
     }
 }
