@@ -1,7 +1,7 @@
-use crate::domain::areas::repository::Repository;
-use crate::domain::objects::blob::Blob;
-use crate::domain::objects::index_entry::IndexEntry;
-use crate::domain::objects::object::Object;
+use crate::areas::repository::Repository;
+use crate::artifacts::index::index_entry::IndexEntry;
+use crate::artifacts::objects::blob::Blob;
+use crate::artifacts::objects::object::Object;
 use std::collections::HashSet;
 use std::path::PathBuf;
 

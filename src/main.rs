@@ -1,14 +1,15 @@
 #![allow(dead_code)]
 
-use crate::domain::areas::repository::Repository;
 use anyhow::Result;
+use areas::repository::Repository;
 use clap::{Parser, Subcommand};
 
 // TODO: improve error handling and messages
 // TODO: improve test harness using snapbox
 
+mod areas;
+mod artifacts;
 mod commands;
-mod domain;
 
 #[derive(Parser)]
 #[command(

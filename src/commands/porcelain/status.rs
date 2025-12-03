@@ -1,6 +1,6 @@
-use crate::domain::areas::repository::Repository;
-use crate::domain::objects::file_change::FileChangeType;
-use crate::domain::objects::status::StatusInfo;
+use crate::areas::repository::Repository;
+use crate::artifacts::status::file_change::FileChangeType;
+use crate::artifacts::status::status_info::StatusInfo;
 use colored::*;
 use std::collections::BTreeMap;
 use std::path::PathBuf;

@@ -1,6 +1,6 @@
-use crate::domain::areas::repository::Repository;
-use crate::domain::objects::blob::Blob;
-use crate::domain::objects::object::Object;
+use crate::areas::repository::Repository;
+use crate::artifacts::objects::blob::Blob;
+use crate::artifacts::objects::object::Object;
 
 impl Repository {
     pub fn hash_object(&mut self, object_path: &str, write: bool) -> anyhow::Result<()> {

@@ -1,12 +1,12 @@
-use crate::domain::areas::index::Index;
-use crate::domain::areas::repository::Repository;
-use crate::domain::areas::workspace::Workspace;
-use crate::domain::objects::diff::{DiffAlgorithm, Hunk, MyersDiff};
-use crate::domain::objects::diff_target::DiffTarget;
-use crate::domain::objects::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
-use crate::domain::objects::object_id::ObjectId;
-use crate::domain::objects::status::StatusInfo;
-use crate::domain::objects::tree_diff::{DiffFilter, TreeDiff};
+use crate::areas::index::Index;
+use crate::areas::repository::Repository;
+use crate::areas::workspace::Workspace;
+use crate::artifacts::diff::diff_algorithm::{DiffAlgorithm, Hunk, MyersDiff};
+use crate::artifacts::diff::diff_target::DiffTarget;
+use crate::artifacts::diff::tree_diff::{DiffFilter, TreeDiff};
+use crate::artifacts::objects::object_id::ObjectId;
+use crate::artifacts::status::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
+use crate::artifacts::status::status_info::StatusInfo;
 use colored::Colorize;
 use std::path::Path;
 

@@ -1,4 +1,4 @@
-use crate::domain::areas::repository::Repository;
+use crate::areas::repository::Repository;
 use anyhow::Context;
 use std::fs;
 

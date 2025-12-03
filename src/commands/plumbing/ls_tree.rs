@@ -1,6 +1,6 @@
-use crate::domain::areas::repository::Repository;
-use crate::domain::objects::database_entry::DatabaseEntry;
-use crate::domain::objects::object_id::ObjectId;
+use crate::areas::repository::Repository;
+use crate::artifacts::database::database_entry::DatabaseEntry;
+use crate::artifacts::objects::object_id::ObjectId;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

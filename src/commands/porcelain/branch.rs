@@ -1,6 +1,6 @@
-use crate::domain::areas::repository::Repository;
-use crate::domain::objects::branch_name::BranchName;
-use crate::domain::objects::revision::RevisionContext;
+use crate::areas::repository::Repository;
+use crate::artifacts::branch::branch_name::BranchName;
+use crate::artifacts::branch::revision::RevisionContext;
 
 impl Repository {
     pub fn branch(

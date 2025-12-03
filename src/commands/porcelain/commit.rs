@@ -1,7 +1,7 @@
-use crate::domain::areas::repository::Repository;
-use crate::domain::objects::commit::{Author, Commit};
-use crate::domain::objects::object::Object;
-use crate::domain::objects::tree::Tree;
+use crate::areas::repository::Repository;
+use crate::artifacts::objects::commit::{Author, Commit};
+use crate::artifacts::objects::object::Object;
+use crate::artifacts::objects::tree::Tree;
 use std::io::Write;
 
 impl Repository {

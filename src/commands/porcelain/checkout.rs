@@ -1,7 +1,7 @@
-use crate::domain::areas::repository::Repository;
-use crate::domain::objects::migration::Migration;
-use crate::domain::objects::revision::RevisionContext;
-use crate::domain::objects::tree_diff::TreeDiff;
+use crate::areas::repository::Repository;
+use crate::artifacts::branch::revision::RevisionContext;
+use crate::artifacts::diff::migration::Migration;
+use crate::artifacts::diff::tree_diff::TreeDiff;
 use std::path::Path;
 
 impl Repository {
