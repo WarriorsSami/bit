@@ -1,6 +1,6 @@
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::revision::RevisionContext;
-use crate::artifacts::diff::migration::Migration;
+use crate::artifacts::checkout::migration::Migration;
 use crate::artifacts::diff::tree_diff::TreeDiff;
 use std::path::Path;
 

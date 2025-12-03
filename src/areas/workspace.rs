@@ -1,4 +1,4 @@
-use crate::artifacts::diff::migration::{ActionType, Migration};
+use crate::artifacts::checkout::migration::{ActionType, Migration};
 use crate::artifacts::index::index_entry::EntryMetadata;
 use crate::artifacts::objects::blob::Blob;
 use anyhow::Context;
