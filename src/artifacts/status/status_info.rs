@@ -54,7 +54,12 @@ impl<'r> Status<'r> {
 
         let untracked_changeset = untracked_files
             .iter()
-            .map(|file| (file.clone(), FileChangeType::Untracked))
+            .map(|file| {
+                (
+                    file.clone(),
+                    FileChangeType::Workspace(WorkspaceChangeType::Untracked),
+                )
+            })
             .collect::<BTreeMap<_, _>>();
         let workspace_changeset = changed_files
             .iter()
@@ -186,7 +191,7 @@ impl<'r> Status<'r> {
         changed_files: &mut BTreeMap<PathBuf, FileChange>,
     ) -> anyhow::Result<()> {
         let stat = file_stats.get(&index_entry.name);
-        let status = inspector.check_index_against_workspace(index_entry, stat)?;
+        let status = inspector.check_index_against_workspace(Some(index_entry), stat)?;
 
         if status != WorkspaceChangeType::None {
             self.record_workspace_change(index_entry.name.clone(), status, changed_files);
@@ -217,7 +222,7 @@ impl<'r> Status<'r> {
         changed_files: &mut BTreeMap<PathBuf, FileChange>,
     ) -> anyhow::Result<()> {
         let head_entry = head_tree.get(&index_entry.name);
-        let status = inspector.check_index_against_head_tree(index_entry, head_entry)?;
+        let status = inspector.check_index_against_head_tree(Some(index_entry), head_entry);
 
         if status != IndexChangeType::None {
             self.record_index_change(index_entry.name.clone(), status, changed_files);

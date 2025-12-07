@@ -6,6 +6,7 @@ const LABEL_WIDTH: usize = 8;
 pub enum WorkspaceChangeType {
     #[default]
     None,
+    Untracked,
     Modified,
     Deleted,
 }
@@ -14,6 +15,7 @@ impl From<&WorkspaceChangeType> for &str {
     fn from(change: &WorkspaceChangeType) -> Self {
         match change {
             WorkspaceChangeType::None => " ",
+            WorkspaceChangeType::Untracked => "??",
             WorkspaceChangeType::Modified => "M",
             WorkspaceChangeType::Deleted => "D",
         }
@@ -40,10 +42,8 @@ impl From<&IndexChangeType> for &str {
     }
 }
 
-// TODO: coalesce WorkspaceChangeType and IndexChangeType into a single enum with variants
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FileChangeType {
-    Untracked,
     Workspace(WorkspaceChangeType),
     Index(IndexChangeType),
 }
@@ -51,9 +51,9 @@ pub enum FileChangeType {
 impl From<&FileChangeType> for &str {
     fn from(change: &FileChangeType) -> Self {
         match change {
-            FileChangeType::Untracked => "",
             FileChangeType::Workspace(workspace_change) => match workspace_change {
                 WorkspaceChangeType::None => "",
+                WorkspaceChangeType::Untracked => "",
                 WorkspaceChangeType::Modified => "modified:   ",
                 WorkspaceChangeType::Deleted => "deleted:    ",
             },
@@ -70,9 +70,9 @@ impl From<&FileChangeType> for &str {
 impl std::fmt::Display for FileChangeType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let colored_str = match self {
-            FileChangeType::Untracked => "".normal(),
             FileChangeType::Workspace(workspace_change) => match workspace_change {
                 WorkspaceChangeType::None => "".normal(),
+                WorkspaceChangeType::Untracked => "".normal(),
                 WorkspaceChangeType::Modified => "modified:   ".red(),
                 WorkspaceChangeType::Deleted => "deleted:    ".red(),
             },

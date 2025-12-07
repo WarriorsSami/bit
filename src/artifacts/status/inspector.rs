@@ -41,38 +41,40 @@ impl<'r> Inspector<'r> {
 
     pub fn check_index_against_workspace(
         &self,
-        entry: &IndexEntry,
+        entry: Option<&IndexEntry>,
         stat: Option<&EntryMetadata>,
     ) -> anyhow::Result<WorkspaceChangeType> {
-        match stat {
-            Some(stat) if entry.stat_match(stat) => {
-                if entry.times_match(stat) {
-                    Ok(WorkspaceChangeType::None)
-                } else if self.is_content_changed(entry)? {
-                    Ok(WorkspaceChangeType::Modified)
-                } else {
-                    Ok(WorkspaceChangeType::None)
-                }
+        match (entry, stat) {
+            (None, _) => Ok(WorkspaceChangeType::Untracked),
+            (Some(_), None) => Ok(WorkspaceChangeType::Deleted),
+            (Some(entry), Some(stat)) if !entry.stat_match(stat) => {
+                Ok(WorkspaceChangeType::Modified)
             }
-            Some(_) => Ok(WorkspaceChangeType::Modified),
-            None => Ok(WorkspaceChangeType::Deleted),
+            (Some(entry), Some(stat)) if entry.stat_match(stat) && entry.times_match(stat) => {
+                Ok(WorkspaceChangeType::None)
+            }
+            (Some(entry), Some(_)) if self.is_content_changed(entry)? => {
+                Ok(WorkspaceChangeType::Modified)
+            }
+            _ => Ok(WorkspaceChangeType::None),
         }
     }
 
     pub fn check_index_against_head_tree(
         &self,
-        index_entry: &IndexEntry,
+        index_entry: Option<&IndexEntry>,
         head_entry: Option<&DatabaseEntry>,
-    ) -> anyhow::Result<IndexChangeType> {
-        match head_entry {
-            Some(head_entry)
+    ) -> IndexChangeType {
+        match (index_entry, head_entry) {
+            (Some(index_entry), Some(head_entry))
                 if head_entry.mode != index_entry.metadata.mode
                     || head_entry.oid != index_entry.oid =>
             {
-                Ok(IndexChangeType::Modified)
+                IndexChangeType::Modified
             }
-            Some(_) => Ok(IndexChangeType::None),
-            None => Ok(IndexChangeType::Added),
+            (Some(_), None) => IndexChangeType::Added,
+            (None, Some(_)) => IndexChangeType::Deleted,
+            _ => IndexChangeType::None,
         }
     }
 }
