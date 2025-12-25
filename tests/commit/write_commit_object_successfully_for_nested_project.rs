@@ -1,4 +1,5 @@
 use crate::common;
+use crate::common::command::get_head_commit_sha;
 use assert_cmd::Command;
 use assert_fs::fixture::{FileWriteStr, PathChild};
 use assert_fs::prelude::PathCreateDir;
@@ -86,15 +87,11 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
         .to_vec();
     let commit_excerpt = String::from_utf8(commit_excerpt_raw)?;
 
-    // read the HEAD file to get the commit OID
-    let head_file_path = dir.child(".git/HEAD").to_path_buf();
-    let head_file_content = fs::read_to_string(head_file_path)?;
+    // Get the commit OID by resolving symbolic references from HEAD
+    let commit_oid = get_head_commit_sha(dir.path())?;
 
-    assert_eq!(head_file_content.len(), 40);
-    assert!(head_file_content.chars().all(|c| c.is_ascii_hexdigit()));
-    assert!(commit_excerpt.contains(&head_file_content[..7]));
-
-    let commit_oid = head_file_content;
+    // Verify the commit excerpt contains the abbreviated commit OID
+    assert!(commit_excerpt.contains(&commit_oid[..7]));
 
     // read the commit object using git cat-file
     let mut cmd = Command::new("git");

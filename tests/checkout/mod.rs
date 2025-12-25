@@ -1,2 +1,3 @@
 mod checkout_branch_successfully;
 mod checkout_with_conflicts;
+mod checkout_with_symbolic_refs;

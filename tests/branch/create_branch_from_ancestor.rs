@@ -1,5 +1,6 @@
 use crate::common::command::{
-    get_ancestor_commit_id, get_parent_commit_id, repository_with_multiple_commits, run_bit_command,
+    get_ancestor_commit_id, get_head_commit_sha, get_parent_commit_id,
+    repository_with_multiple_commits, run_bit_command,
 };
 use assert_fs::TempDir;
 use pretty_assertions::assert_eq;
@@ -11,9 +12,8 @@ fn create_branch_from_ancestor_with_generation_1(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_multiple_commits;
 
-    // Get HEAD commit ID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Get HEAD~1 and HEAD^ from the database (should be the same)
     let expected_ancestor_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 1)?;
@@ -66,9 +66,8 @@ fn create_branch_from_ancestor_with_generation_2(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_multiple_commits;
 
-    // Get HEAD commit ID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Get HEAD~2 from the database (should be same as HEAD^^)
     let expected_ancestor_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 2)?;
@@ -119,9 +118,8 @@ fn create_branch_from_ancestor_with_generation_3(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_multiple_commits;
 
-    // Get HEAD commit ID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Get HEAD~3 from the database
     let expected_ancestor_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 3)?;
@@ -156,9 +154,8 @@ fn create_branch_from_ancestor_of_branch(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_multiple_commits;
 
-    // Get HEAD commit ID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Create a branch from HEAD
     run_bit_command(repository_dir.path(), &["branch", "main"])

@@ -1,4 +1,4 @@
-use crate::common::command::{bit_commit, repository_dir, run_bit_command};
+use crate::common::command::{bit_commit, get_head_commit_sha, repository_dir, run_bit_command};
 use crate::common::file::{FileSpec, write_file};
 use assert_fs::TempDir;
 use pretty_assertions::assert_eq;
@@ -34,9 +34,8 @@ fn create_branch_from_ambiguous_oid_shows_candidates(
             .assert()
             .success();
 
-        // Get the commit OID
-        let head_path = repository_dir.path().join(".git").join("HEAD");
-        let oid = std::fs::read_to_string(&head_path)?.trim().to_string();
+        // Get the commit OID (resolve symbolic references)
+        let oid = get_head_commit_sha(repository_dir.path())?;
         commit_oids.push(oid);
     }
 
@@ -107,9 +106,8 @@ fn create_branch_from_unique_abbreviated_oid_succeeds(
         .assert()
         .success();
 
-    // Get the commit OID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let full_oid = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get the commit OID (resolve symbolic references)
+    let full_oid = get_head_commit_sha(repository_dir.path())?;
 
     // Try increasingly shorter prefixes until we find one that works
     for prefix_len in (4..=full_oid.len()).rev() {
@@ -166,9 +164,8 @@ fn create_branch_from_oid_prefix_too_short_fails(
         .assert()
         .success();
 
-    // Get the commit OID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let full_oid = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get the commit OID (resolve symbolic references)
+    let full_oid = get_head_commit_sha(repository_dir.path())?;
 
     // Try a prefix that's too short (3 chars or less)
     let short_prefix = &full_oid[..3];

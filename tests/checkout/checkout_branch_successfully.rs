@@ -35,8 +35,8 @@ pub fn repository_with_branches() -> TempDir {
         .assert()
         .success();
 
-    // Create master branch at this point
-    run_bit_command(repository_dir.path(), &["branch", "master"])
+    // Create trunk branch at this point
+    run_bit_command(repository_dir.path(), &["branch", "trunk"])
         .assert()
         .success();
 
@@ -94,15 +94,6 @@ fn checkout_branch_successfully(
     let head_path = repository_dir.path().join(".git").join("HEAD");
     let initial_head = std::fs::read_to_string(&head_path)?;
 
-    // Get the feature branch commit SHA
-    let feature_branch_path = repository_dir
-        .path()
-        .join(".git")
-        .join("refs")
-        .join("heads")
-        .join("feature");
-    let feature_commit = std::fs::read_to_string(&feature_branch_path)?;
-
     // Verify initial workspace state (at third commit)
     let file1_content = std::fs::read_to_string(repository_dir.path().join("file1.txt"))?;
     assert_eq!(file1_content, "modified content 1");
@@ -118,9 +109,13 @@ fn checkout_branch_successfully(
         .assert()
         .success();
 
-    // Verify HEAD is updated to point to the feature branch commit
+    // Verify HEAD is now a symbolic ref to the feature branch
     let updated_head = std::fs::read_to_string(&head_path)?;
-    assert_eq!(updated_head.trim(), feature_commit.trim());
+    assert!(
+        updated_head.contains("ref: refs/heads/feature"),
+        "Expected HEAD to be symbolic ref to feature branch, got: {}",
+        updated_head
+    );
     assert_ne!(updated_head, initial_head);
 
     // Verify workspace files are updated to match the feature branch state
@@ -147,24 +142,24 @@ fn checkout_branch_by_commit_sha(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_branches;
 
-    // Get the master branch commit SHA (first commit)
-    let master_branch_path = repository_dir
+    // Get the trunk branch commit SHA (first commit)
+    let trunk_branch_path = repository_dir
         .path()
         .join(".git")
         .join("refs")
         .join("heads")
-        .join("master");
-    let master_commit = std::fs::read_to_string(&master_branch_path)?;
+        .join("trunk");
+    let trunk_commit = std::fs::read_to_string(&trunk_branch_path)?;
 
     // Checkout using the commit SHA directly
-    run_bit_command(repository_dir.path(), &["checkout", master_commit.trim()])
+    run_bit_command(repository_dir.path(), &["checkout", trunk_commit.trim()])
         .assert()
         .success();
 
     // Verify HEAD is updated to the master commit
     let head_path = repository_dir.path().join(".git").join("HEAD");
     let updated_head = std::fs::read_to_string(&head_path)?;
-    assert_eq!(updated_head.trim(), master_commit.trim());
+    assert_eq!(updated_head.trim(), trunk_commit.trim());
 
     // Verify workspace files match the first commit state
     let file1_content = std::fs::read_to_string(repository_dir.path().join("file1.txt"))?;

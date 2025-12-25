@@ -1,5 +1,6 @@
 use crate::common::command::{
-    get_ancestor_commit_id, get_parent_commit_id, repository_with_multiple_commits, run_bit_command,
+    get_ancestor_commit_id, get_head_commit_sha, get_parent_commit_id,
+    repository_with_multiple_commits, run_bit_command,
 };
 use assert_fs::TempDir;
 use pretty_assertions::{assert_eq, assert_ne};
@@ -11,9 +12,8 @@ fn create_branch_from_parent_of_head(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_multiple_commits;
 
-    // Get HEAD commit ID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Get the parent of HEAD from the database
     let expected_parent_id = get_parent_commit_id(repository_dir.path(), &head_content)?;
@@ -48,9 +48,8 @@ fn create_branch_from_parent_of_branch(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_multiple_commits;
 
-    // Get HEAD commit ID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Get HEAD~2 from the database
     let expected_main_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 2)?;
@@ -114,9 +113,8 @@ fn create_branch_from_grandparent_of_head(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = repository_with_multiple_commits;
 
-    // Get HEAD commit ID
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Get the grandparent of HEAD from the database (HEAD^^)
     let expected_grandparent_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 2)?;

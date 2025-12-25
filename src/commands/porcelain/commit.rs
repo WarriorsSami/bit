@@ -29,6 +29,7 @@ impl Repository {
         let commit = Commit::new(parent, tree_id, author, message);
         let commit_id = commit.object_id()?;
         self.database().store(commit.clone())?;
+
         self.refs().update_head(commit_id.clone())?;
 
         write!(

@@ -1,4 +1,4 @@
-use crate::common::command::{init_repository_dir, run_bit_command};
+use crate::common::command::{get_head_commit_sha, init_repository_dir, run_bit_command};
 use assert_fs::TempDir;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
@@ -17,8 +17,8 @@ fn create_branch_with_various_valid_names(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let repository_dir = init_repository_dir;
 
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let head_content = std::fs::read_to_string(&head_path)?;
+    // Get HEAD commit ID (resolve symbolic references)
+    let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // create the branch
     run_bit_command(repository_dir.path(), &["branch", branch_name])

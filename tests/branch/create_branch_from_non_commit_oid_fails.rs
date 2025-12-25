@@ -1,4 +1,4 @@
-use crate::common::command::{repository_dir, run_bit_command};
+use crate::common::command::{get_head_commit_sha, repository_dir, run_bit_command};
 use crate::common::file::{FileSpec, write_file};
 use assert_fs::TempDir;
 use predicates::prelude::predicate;
@@ -108,9 +108,8 @@ fn create_branch_from_tree_oid_fails(
         .assert()
         .success();
 
-    // Get the tree OID from the commit
-    let head_path = repository_dir.path().join(".git").join("HEAD");
-    let commit_oid = std::fs::read_to_string(&head_path)?.trim().to_string();
+    // Get the tree OID from the commit (resolve symbolic references)
+    let commit_oid = get_head_commit_sha(repository_dir.path())?;
 
     // Use git cat-file to get the tree OID from the commit
     let output = std::process::Command::new("git")

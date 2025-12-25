@@ -1,4 +1,4 @@
-use crate::artifacts::branch::branch_name::BranchName;
+use crate::artifacts::branch::branch_name::{BranchName, SymRefName};
 use crate::artifacts::objects::object_id::ObjectId;
 use anyhow::Context;
 use derive_new::new;
@@ -12,16 +12,110 @@ pub struct Refs {
     path: Box<Path>,
 }
 
+const SYMREF_REGEX: &str = r"^ref: (.+)$";
+
+#[derive(Debug, Clone)]
+enum SymRefOrOid {
+    SymRef { sym_ref_name: SymRefName },
+    Oid(ObjectId),
+}
+
+impl SymRefOrOid {
+    fn read_symref_or_oid(path: &Path) -> anyhow::Result<Option<SymRefOrOid>> {
+        if !path.exists() {
+            return Ok(None);
+        }
+
+        let content = std::fs::read_to_string(path)?;
+        let content = content.trim();
+
+        if content.is_empty() {
+            return Ok(None);
+        }
+
+        let symref_match = regex::Regex::new(SYMREF_REGEX)?.captures(content);
+        if let Some(symref_match) = symref_match {
+            Ok(Some(SymRefOrOid::SymRef {
+                sym_ref_name: SymRefName::new(symref_match[1].to_string()),
+            }))
+        } else {
+            Ok(Some(SymRefOrOid::Oid(ObjectId::try_parse(
+                content.to_string(),
+            )?)))
+        }
+    }
+}
+
 impl Refs {
+    pub fn read_oid(&self, sym_ref_name: &SymRefName) -> anyhow::Result<Option<ObjectId>> {
+        self.read_ref(BranchName::try_parse_sym_ref_name(sym_ref_name)?)
+    }
+
+    pub fn current_ref(&self, source: Option<SymRefName>) -> anyhow::Result<SymRefName> {
+        let source = source.unwrap_or_else(|| SymRefName::new("HEAD".to_string()));
+
+        let ref_content =
+            SymRefOrOid::read_symref_or_oid(self.path.join(source.as_ref_path()).as_path())?;
+
+        match ref_content {
+            Some(SymRefOrOid::SymRef { sym_ref_name }) => Ok(self.current_ref(Some(sym_ref_name))?),
+            Some(_) | None => Ok(source),
+        }
+    }
+
+    fn read_symref(&self, path: &Path) -> anyhow::Result<Option<ObjectId>> {
+        let ref_content = SymRefOrOid::read_symref_or_oid(path)?;
+
+        match ref_content {
+            Some(SymRefOrOid::SymRef { sym_ref_name }) => {
+                self.read_symref(self.path.join(sym_ref_name.as_ref_path()).as_path())
+            }
+            Some(SymRefOrOid::Oid(oid)) => Ok(Some(oid)),
+            None => Ok(None),
+        }
+    }
+
+    fn update_symref(&self, path: &Path, oid: ObjectId) -> anyhow::Result<()> {
+        let mut ref_file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(path)
+            .with_context(|| format!("failed to open ref file at {:?}", path))?;
+        let mut lock = file_guard::lock(&mut ref_file, Lock::Exclusive, 0, 1)?;
+
+        let ref_content = SymRefOrOid::read_symref_or_oid(path)?;
+
+        match ref_content {
+            Some(SymRefOrOid::SymRef { sym_ref_name }) => {
+                let target_path = self.path.join(sym_ref_name.as_ref_path());
+                self.update_symref(target_path.as_path(), oid)
+            }
+            Some(SymRefOrOid::Oid(_)) | None => {
+                lock.deref_mut().write_all(oid.as_ref().as_bytes())?;
+                Ok(())
+            }
+        }
+    }
+
+    pub fn set_head(&self, revision: &str, raw_ref: String) -> anyhow::Result<()> {
+        let revision_path = self.heads_path().join(revision).into_boxed_path();
+
+        if revision_path.exists() {
+            self.update_ref_file(self.head_path(), format!("ref: refs/heads/{}", revision))
+        } else {
+            self.update_ref_file(self.head_path(), raw_ref)
+        }
+    }
+
     pub fn update_head(&self, oid: ObjectId) -> anyhow::Result<()> {
-        self.update_ref_file(self.head_path(), oid)
+        self.update_symref(self.head_path().as_ref(), oid)
     }
 
     pub fn read_head(&self) -> anyhow::Result<Option<ObjectId>> {
-        self.read_ref_file(self.head_path())
+        self.read_symref(&self.head_path())
     }
 
-    pub fn update_ref_file(&self, path: Box<Path>, oid: ObjectId) -> anyhow::Result<()> {
+    pub fn update_ref_file(&self, path: Box<Path>, raw_ref: String) -> anyhow::Result<()> {
         // create all the parent directories if they don't exist
         std::fs::create_dir_all(path.parent().with_context(|| {
             format!(
@@ -38,14 +132,14 @@ impl Refs {
             .open(path.clone())
             .with_context(|| format!("failed to open ref file at {:?}", path))?;
         let mut lock = file_guard::lock(&mut ref_file, Lock::Exclusive, 0, 1)?;
-        lock.deref_mut().write_all(oid.as_ref().as_bytes())?;
+        lock.deref_mut().write_all(raw_ref.as_bytes())?;
 
         Ok(())
     }
 
     pub fn read_ref(&self, branch_name: BranchName) -> anyhow::Result<Option<ObjectId>> {
         let ref_path = self.find_path_to_branch(branch_name)?;
-        self.read_ref_file(ref_path)
+        self.read_symref(&ref_path)
     }
 
     fn find_path_to_branch(&self, branch_name: BranchName) -> anyhow::Result<Box<Path>> {
@@ -73,12 +167,12 @@ impl Refs {
     pub fn create_branch(&self, name: BranchName, source_oid: ObjectId) -> anyhow::Result<()> {
         let branch_path = self.heads_path().join(name.as_ref()).into_boxed_path();
 
-        // check whether another branch with the same already exists
-        if branch_path.exists() {
+        // check whether another branch with the same name already exists
+        if branch_path.exists() && !name.is_default_branch() {
             anyhow::bail!("branch {} already exists", name);
         }
 
-        self.update_ref_file(branch_path, source_oid)
+        self.update_ref_file(branch_path, source_oid.as_ref().into())
     }
 
     pub fn head_path(&self) -> Box<Path> {
