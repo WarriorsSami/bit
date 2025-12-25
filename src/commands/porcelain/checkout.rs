@@ -44,10 +44,6 @@ impl Repository {
             Some(target_oid.clone()),
             Path::new(""),
         )?;
-        // println!("Current HEAD: {}", current_oid);
-        // println!("Target HEAD: {}", target_oid);
-        // println!("Tree diff changes: {:?}", tree_diff.changes());
-        // anyhow::bail!("checkout migration not yet implemented");
 
         let mut migration = Migration::new(self, &mut index, tree_diff);
         migration.apply_changes()?;
