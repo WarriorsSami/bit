@@ -36,7 +36,7 @@ pub fn repository_with_branches() -> TempDir {
         .success();
 
     // Create trunk branch at this point
-    run_bit_command(repository_dir.path(), &["branch", "trunk"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "trunk"])
         .assert()
         .success();
 
@@ -62,7 +62,7 @@ pub fn repository_with_branches() -> TempDir {
         .success();
 
     // Create feature branch at this point
-    run_bit_command(repository_dir.path(), &["branch", "feature"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "feature"])
         .assert()
         .success();
 
@@ -317,9 +317,12 @@ fn checkout_with_complex_file_and_directory_operations() -> Result<(), Box<dyn s
         .success();
 
     // Create branch pointing to first commit
-    run_bit_command(repository_dir.path(), &["branch", "initial-state"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "initial-state"],
+    )
+    .assert()
+    .success();
 
     // ============================================================
     // SECOND COMMIT: Complex transformations

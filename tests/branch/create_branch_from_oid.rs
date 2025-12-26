@@ -22,7 +22,7 @@ fn create_branch_from_full_oid(
     // Create a branch from the full OID of HEAD's parent
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-full-oid", &parent_id],
+        &["branch", "create", "feature-from-full-oid", &parent_id],
     )
     .assert()
     .success();
@@ -65,7 +65,12 @@ fn create_branch_from_abbreviated_oid(
     // Create a branch from the abbreviated OID
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-abbrev-oid", abbreviated_oid],
+        &[
+            "branch",
+            "create",
+            "feature-from-abbrev-oid",
+            abbreviated_oid,
+        ],
     )
     .assert()
     .success();
@@ -109,7 +114,12 @@ fn create_branch_from_oid_with_parent_suffix(
     let oid_with_parent = format!("{}^", parent_id);
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-oid-parent", &oid_with_parent],
+        &[
+            "branch",
+            "create",
+            "feature-from-oid-parent",
+            &oid_with_parent,
+        ],
     )
     .assert()
     .success();
@@ -148,7 +158,12 @@ fn create_branch_from_oid_with_ancestor_suffix(
     let oid_with_ancestor = format!("{}~3", abbreviated_head);
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-oid-ancestor", &oid_with_ancestor],
+        &[
+            "branch",
+            "create",
+            "feature-from-oid-ancestor",
+            &oid_with_ancestor,
+        ],
     )
     .assert()
     .success();
@@ -188,7 +203,12 @@ fn create_branch_from_minimum_length_abbreviated_oid(
     // Create a branch from the minimum abbreviated OID
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-min-oid", min_abbreviated_oid],
+        &[
+            "branch",
+            "create",
+            "feature-from-min-oid",
+            min_abbreviated_oid,
+        ],
     )
     .assert()
     .success();
@@ -221,7 +241,12 @@ fn create_branch_from_nonexistent_oid_fails(
     // Attempt to create a branch from the non-existent OID
     let output = run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-nonexistent", nonexistent_oid],
+        &[
+            "branch",
+            "create",
+            "feature-from-nonexistent",
+            nonexistent_oid,
+        ],
     )
     .assert()
     .failure();
@@ -246,7 +271,7 @@ fn create_branch_from_invalid_oid_fails(
     // This should fail because it's not valid hex and too short to be a valid branch name
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-invalid", invalid_oid],
+        &["branch", "create", "feature-from-invalid", invalid_oid],
     )
     .assert()
     .failure();

@@ -21,7 +21,7 @@ fn create_branch_with_various_valid_names(
     let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // create the branch
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .success();
 

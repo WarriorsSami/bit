@@ -31,10 +31,13 @@ fn create_branch_from_blob_oid_fails(
     let blob_oid = String::from_utf8(output.stdout)?.trim().to_string();
 
     // Try to create a branch from the blob OID (should fail)
-    run_bit_command(repository_dir.path(), &["branch", "test-branch", &blob_oid])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("is a blob, not a commit"));
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "test-branch", &blob_oid],
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("is a blob, not a commit"));
 
     Ok(())
 }
@@ -69,7 +72,7 @@ fn create_branch_from_abbreviated_blob_oid_fails(
     // Try to create a branch from the abbreviated blob OID (should fail)
     run_bit_command(
         repository_dir.path(),
-        &["branch", "test-branch", abbreviated_blob_oid],
+        &["branch", "create", "test-branch", abbreviated_blob_oid],
     )
     .assert()
     .failure()
@@ -125,10 +128,13 @@ fn create_branch_from_tree_oid_fails(
     let tree_oid = tree_line.strip_prefix("tree ").unwrap().trim();
 
     // Try to create a branch from the tree OID (should fail)
-    run_bit_command(repository_dir.path(), &["branch", "test-branch", tree_oid])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("is a tree, not a commit"));
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "test-branch", tree_oid],
+    )
+    .assert()
+    .failure()
+    .stderr(predicate::str::contains("is a tree, not a commit"));
 
     Ok(())
 }

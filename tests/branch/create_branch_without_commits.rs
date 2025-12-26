@@ -16,7 +16,7 @@ fn create_branch_without_commits(
 
     // attempt to create a branch without any commits
     let branch_name = "feature";
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .failure()
         .stderr(predicate::str::contains("no current HEAD to branch from"));

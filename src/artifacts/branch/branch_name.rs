@@ -15,6 +15,20 @@ impl SymRefName {
     pub fn as_ref_path(&self) -> &str {
         &self.0
     }
+
+    pub fn to_branch_name(&self) -> anyhow::Result<BranchName> {
+        BranchName::try_parse_sym_ref_name(self)
+    }
+
+    pub fn to_short_name(&self) -> anyhow::Result<String> {
+        self.to_branch_name().map(|b| b.as_ref().to_string())
+    }
+}
+
+impl AsRef<str> for SymRefName {
+    fn as_ref(&self) -> &str {
+        &self.0
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default, PartialOrd, Ord)]

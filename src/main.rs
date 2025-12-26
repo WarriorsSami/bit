@@ -138,13 +138,8 @@ enum Commands {
         long_about = "This command allows you to create, list, or delete branches in the repository."
     )]
     Branch {
-        #[arg(index = 1, help = "The name of the branch to create")]
-        branch_name: String,
-        #[arg(
-            index = 2,
-            help = "Create a new branch from the specified ref name, i.e. commit SHA or branch name"
-        )]
-        source_refname: Option<String>,
+        #[command(subcommand)]
+        action: BranchAction,
     },
     #[command(
         name = "checkout",
@@ -155,6 +150,29 @@ enum Commands {
     Checkout {
         #[arg(index = 1, help = "The target revision to checkout")]
         target_revision: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum BranchAction {
+    #[command(name = "create", about = "Create a new branch")]
+    Create {
+        #[arg(index = 1, help = "The name of the branch to create")]
+        branch_name: String,
+        #[arg(index = 2, help = "Create a new branch from the specified revision")]
+        source_refname: Option<String>,
+    },
+    #[command(name = "delete", about = "Delete one or more branches")]
+    Delete {
+        #[arg(index = 1, help = "The name(s) of the branch(es) to delete")]
+        branch_names: Vec<String>,
+        #[arg(short = 'f', long, help = "Force deletion")]
+        force: bool,
+    },
+    #[command(name = "list", about = "List all branches")]
+    List {
+        #[arg(short = 'v', long, help = "Show more information")]
+        verbose: bool,
     },
 }
 
@@ -237,15 +255,12 @@ async fn run() -> Result<()> {
                 )
                 .await?
         }
-        Commands::Branch {
-            branch_name,
-            source_refname,
-        } => {
+        Commands::Branch { action } => {
             let pwd = std::env::current_dir()?;
             let mut repository =
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.branch(branch_name.as_str(), source_refname.as_deref())?
+            repository.branch(action)?
         }
         Commands::Checkout { target_revision } => {
             let pwd = std::env::current_dir()?;

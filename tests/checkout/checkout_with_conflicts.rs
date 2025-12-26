@@ -42,7 +42,7 @@ pub fn repository_for_conflicts() -> TempDir {
         .success();
 
     // Create branch pointing to first commit
-    run_bit_command(repository_dir.path(), &["branch", "first-commit"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "first-commit"])
         .assert()
         .success();
 
@@ -68,9 +68,12 @@ pub fn repository_for_conflicts() -> TempDir {
         .success();
 
     // Create branch pointing to second commit
-    run_bit_command(repository_dir.path(), &["branch", "second-commit"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "second-commit"],
+    )
+    .assert()
+    .success();
 
     repository_dir
 }
@@ -291,7 +294,7 @@ fn checkout_fails_with_untracked_directory_would_be_overwritten()
         .assert()
         .success();
 
-    run_bit_command(repository_dir.path(), &["branch", "with-dir"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "with-dir"])
         .assert()
         .success();
 
@@ -390,9 +393,12 @@ fn checkout_fails_with_untracked_file_would_be_removed() -> Result<(), Box<dyn s
         .assert()
         .success();
 
-    run_bit_command(repository_dir.path(), &["branch", "without-special"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "without-special"],
+    )
+    .assert()
+    .success();
 
     // Second commit - add directory that will conflict with untracked file
     let dir_file = FileSpec::new(
@@ -409,7 +415,7 @@ fn checkout_fails_with_untracked_file_would_be_removed() -> Result<(), Box<dyn s
         .assert()
         .success();
 
-    run_bit_command(repository_dir.path(), &["branch", "with-dir"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "with-dir"])
         .assert()
         .success();
 
@@ -574,7 +580,7 @@ fn checkout_fails_with_multiple_conflicts() -> Result<(), Box<dyn std::error::Er
         .assert()
         .success();
 
-    run_bit_command(repository_dir.path(), &["branch", "first"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "first"])
         .assert()
         .success();
 

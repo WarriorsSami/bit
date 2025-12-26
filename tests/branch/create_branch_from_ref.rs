@@ -21,7 +21,7 @@ fn create_branch_from_head_ref(
     // Create a branch from HEAD^ (parent of current HEAD)
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-head", "HEAD^"],
+        &["branch", "create", "feature-from-head", "HEAD^"],
     )
     .assert()
     .success();
@@ -60,7 +60,7 @@ fn create_branch_from_head_alias(
     // Create a new branch using @ alias for HEAD~2 (@~2)
     run_bit_command(
         repository_dir.path(),
-        &["branch", "feature-from-alias", "@~2"],
+        &["branch", "create", "feature-from-alias", "@~2"],
     )
     .assert()
     .success();
@@ -97,9 +97,12 @@ fn create_branch_from_another_branch(
     let expected_parent_id = get_parent_commit_id(repository_dir.path(), &head_content)?;
 
     // Create the first branch from HEAD^ (not HEAD)
-    run_bit_command(repository_dir.path(), &["branch", "main", "HEAD^"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "main", "HEAD^"],
+    )
+    .assert()
+    .success();
 
     let main_branch_path = repository_dir
         .path()
@@ -115,9 +118,12 @@ fn create_branch_from_another_branch(
     assert_eq!(main_branch_content, expected_parent_id);
 
     // Create a second branch from the first branch
-    run_bit_command(repository_dir.path(), &["branch", "feature", "main"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "feature", "main"],
+    )
+    .assert()
+    .success();
 
     // Verify the second branch points to the same commit as the first
     let feature_branch_path = repository_dir
@@ -149,7 +155,7 @@ fn create_branch_from_nonexistent_ref_fails(
     // Try to create a branch from a non-existent branch
     run_bit_command(
         repository_dir.path(),
-        &["branch", "new-branch", "nonexistent"],
+        &["branch", "create", "new-branch", "nonexistent"],
     )
     .assert()
     .failure();

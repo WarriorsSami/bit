@@ -30,7 +30,7 @@ pub fn repository_with_branches_and_symbolic_refs() -> TempDir {
         .success();
 
     // Create feature branch at first commit
-    run_bit_command(repository_dir.path(), &["branch", "feature"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "feature"])
         .assert()
         .success();
 
@@ -50,7 +50,7 @@ pub fn repository_with_branches_and_symbolic_refs() -> TempDir {
         .success();
 
     // Create develop branch at second commit
-    run_bit_command(repository_dir.path(), &["branch", "develop"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "develop"])
         .assert()
         .success();
 
@@ -379,9 +379,12 @@ fn checkout_hierarchical_branch_name(
     let repository_dir = repository_with_branches_and_symbolic_refs;
 
     // Create a hierarchical branch name
-    run_bit_command(repository_dir.path(), &["branch", "bugfix/issue-123"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "bugfix/issue-123"],
+    )
+    .assert()
+    .success();
 
     // Checkout the hierarchical branch
     let output = run_bit_command(repository_dir.path(), &["checkout", "bugfix/issue-123"])
@@ -445,7 +448,7 @@ fn checkout_branch_with_same_prefix_as_commit_sha() -> Result<(), Box<dyn std::e
     // Create a branch with a name that starts like a commit SHA (e.g., "abc123")
     // This is a contrived test, but demonstrates branch name takes precedence
     let branch_name = format!("{}branch", &commit_sha[..6]);
-    run_bit_command(repository_dir.path(), &["branch", &branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", &branch_name])
         .assert()
         .success();
 

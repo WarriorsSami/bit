@@ -29,7 +29,7 @@ fn create_branch_with_invalid_name(
     let repository_dir = init_repository_dir;
 
     // attempt to create a branch with an invalid name
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .failure()
         .stderr(predicate::str::contains("invalid branch name"));
@@ -53,7 +53,7 @@ fn create_branch_with_empty_name(
     let repository_dir = init_repository_dir;
 
     // attempt to create a branch with an empty name
-    run_bit_command(repository_dir.path(), &["branch", ""])
+    run_bit_command(repository_dir.path(), &["branch", "create", ""])
         .assert()
         .failure()
         .stderr(predicate::str::contains("branch name cannot be empty"));

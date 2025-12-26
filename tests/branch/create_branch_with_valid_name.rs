@@ -26,7 +26,7 @@ fn create_branch_with_valid_name(
 
     // create the master branch
     let branch_name = "master";
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .success();
 

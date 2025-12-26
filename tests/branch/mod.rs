@@ -10,3 +10,5 @@ mod create_branch_with_valid_name;
 mod create_branch_with_various_valid_names;
 mod create_branch_without_commits;
 mod create_duplicate_branch;
+mod delete_branch;
+mod list_branches;

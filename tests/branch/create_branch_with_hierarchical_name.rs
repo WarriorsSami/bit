@@ -14,7 +14,7 @@ fn create_branch_with_hierarchical_name(
 
     // create a branch with hierarchical name (containing slashes)
     let branch_name = "feature/new-feature";
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .success();
 
@@ -44,7 +44,7 @@ fn create_branch_with_deeply_nested_hierarchical_name(
 
     // create a branch with deeply nested hierarchical name
     let branch_name = "team/backend/feature/user-authentication";
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .success();
 

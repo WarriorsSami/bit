@@ -30,47 +30,64 @@ impl Repository {
                 writeln!(self.writer(), "?? {}", file.display()).unwrap();
             });
         } else {
-            Self::print_changes("Changes to be committed", &status_info.index_changeset);
-            Self::print_changes(
+            self.print_changes("Changes to be committed", &status_info.index_changeset)?;
+            self.print_changes(
                 "Changes not staged for commit",
                 &status_info.workspace_changeset,
-            );
-            Self::print_changes("Untracked files", &status_info.untracked_changeset);
+            )?;
+            self.print_changes("Untracked files", &status_info.untracked_changeset)?;
 
-            Self::print_commit_status(&status_info);
+            self.print_commit_status(&status_info)?;
         }
 
         Ok(())
     }
 
-    fn print_changes(message: &str, changeset: &BTreeMap<PathBuf, FileChangeType>) {
+    fn print_changes(
+        &self,
+        message: &str,
+        changeset: &BTreeMap<PathBuf, FileChangeType>,
+    ) -> anyhow::Result<()> {
         if !changeset.is_empty() {
-            println!("{}:\n", message.bold());
+            writeln!(self.writer(), "{}:\n", message.bold())?;
             for (file, change) in changeset {
-                println!("{}{}", change, file.display().to_string().cyan());
+                writeln!(
+                    self.writer(),
+                    "{}{}",
+                    change,
+                    file.display().to_string().cyan()
+                )?;
             }
-            println!();
+            writeln!(self.writer())?;
         }
+
+        Ok(())
     }
 
-    fn print_commit_status(status_info: &StatusInfo) {
+    fn print_commit_status(&self, status_info: &StatusInfo) -> anyhow::Result<()> {
         if !status_info.index_changeset.is_empty() {
-            return;
+            return Ok(());
         }
 
         if !status_info.workspace_changeset.is_empty() {
-            println!("{}", "no changes added to commit".yellow());
-            return;
+            writeln!(self.writer(), "{}", "no changes added to commit".yellow())?;
+            return Ok(());
         }
 
         if !status_info.untracked_changeset.is_empty() {
-            println!(
+            writeln!(
+                self.writer(),
                 "{}",
                 "no changes added to commit but untracked files present".yellow()
-            );
-            return;
+            )?;
+            return Ok(());
         }
 
-        println!("{}", "nothing to commit, working tree clean".green());
+        writeln!(
+            self.writer(),
+            "{}",
+            "nothing to commit, working tree clean".green()
+        )?;
+        Ok(())
     }
 }

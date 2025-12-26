@@ -54,9 +54,12 @@ fn create_branch_from_ambiguous_oid_shows_candidates(
             // We have an ambiguous prefix!
             found_ambiguous = true;
 
-            let output = run_bit_command(repository_dir.path(), &["branch", "test-branch", prefix])
-                .assert()
-                .failure();
+            let output = run_bit_command(
+                repository_dir.path(),
+                &["branch", "create", "test-branch", prefix],
+            )
+            .assert()
+            .failure();
 
             let stderr = String::from_utf8(output.get_output().stderr.clone())?;
             println!("Actual error for ambiguous OID '{}': {}", prefix, stderr);
@@ -115,7 +118,12 @@ fn create_branch_from_unique_abbreviated_oid_succeeds(
 
         let mut result = run_bit_command(
             repository_dir.path(),
-            &["branch", &format!("test-branch-{}", prefix_len), prefix],
+            &[
+                "branch",
+                "create",
+                &format!("test-branch-{}", prefix_len),
+                prefix,
+            ],
         );
 
         if prefix_len >= 4 {
@@ -172,7 +180,7 @@ fn create_branch_from_oid_prefix_too_short_fails(
 
     let output = run_bit_command(
         repository_dir.path(),
-        &["branch", "test-branch", short_prefix],
+        &["branch", "create", "test-branch", short_prefix],
     )
     .assert()
     .failure();

@@ -23,14 +23,20 @@ fn create_branch_from_ancestor_with_generation_1(
     assert_eq!(expected_ancestor_id, expected_parent_id);
 
     // Create a branch from HEAD~1 (same as HEAD^)
-    run_bit_command(repository_dir.path(), &["branch", "ancestor-1", "HEAD~1"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "ancestor-1", "HEAD~1"],
+    )
+    .assert()
+    .success();
 
     // Create a branch from HEAD^ for comparison
-    run_bit_command(repository_dir.path(), &["branch", "parent", "HEAD^"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "parent", "HEAD^"],
+    )
+    .assert()
+    .success();
 
     // Verify both branches point to the same commit
     let ancestor_path = repository_dir
@@ -73,14 +79,20 @@ fn create_branch_from_ancestor_with_generation_2(
     let expected_ancestor_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 2)?;
 
     // Create a branch from HEAD~2 (grandparent)
-    run_bit_command(repository_dir.path(), &["branch", "ancestor-2", "HEAD~2"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "ancestor-2", "HEAD~2"],
+    )
+    .assert()
+    .success();
 
     // Create a branch from HEAD^^ for comparison
-    run_bit_command(repository_dir.path(), &["branch", "grandparent", "HEAD^^"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "grandparent", "HEAD^^"],
+    )
+    .assert()
+    .success();
 
     // Verify both branches point to the same commit
     let ancestor_path = repository_dir
@@ -125,9 +137,12 @@ fn create_branch_from_ancestor_with_generation_3(
     let expected_ancestor_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 3)?;
 
     // Create a branch from HEAD~3 (great-grandparent)
-    run_bit_command(repository_dir.path(), &["branch", "ancestor-3", "HEAD~3"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "ancestor-3", "HEAD~3"],
+    )
+    .assert()
+    .success();
 
     // Verify the branch was created
     let ancestor_path = repository_dir
@@ -158,7 +173,7 @@ fn create_branch_from_ancestor_of_branch(
     let head_content = get_head_commit_sha(repository_dir.path())?;
 
     // Create a branch from HEAD
-    run_bit_command(repository_dir.path(), &["branch", "main"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "main"])
         .assert()
         .success();
 
@@ -179,7 +194,7 @@ fn create_branch_from_ancestor_of_branch(
     // Create a branch from main~2
     run_bit_command(
         repository_dir.path(),
-        &["branch", "ancestor-of-main", "main~2"],
+        &["branch", "create", "ancestor-of-main", "main~2"],
     )
     .assert()
     .success();
@@ -210,14 +225,17 @@ fn create_branch_from_ancestor_with_generation_0(
     let repository_dir = repository_with_multiple_commits;
 
     // Create a branch from HEAD
-    run_bit_command(repository_dir.path(), &["branch", "main"])
+    run_bit_command(repository_dir.path(), &["branch", "create", "main"])
         .assert()
         .success();
 
     // Create a branch from HEAD~0 (should be same as HEAD)
-    run_bit_command(repository_dir.path(), &["branch", "ancestor-0", "HEAD~0"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "ancestor-0", "HEAD~0"],
+    )
+    .assert()
+    .success();
 
     // Verify both branches point to the same commit
     let ancestor_path = repository_dir
@@ -249,7 +267,7 @@ fn create_branch_from_ancestor_with_alias(
     // Create a branch from ancestor using @ alias (@~2)
     run_bit_command(
         repository_dir.path(),
-        &["branch", "from-alias-ancestor", "@~2"],
+        &["branch", "create", "from-alias-ancestor", "@~2"],
     )
     .assert()
     .success();
@@ -279,9 +297,12 @@ fn create_branch_from_ancestor_beyond_history_fails(
     let repository_dir = repository_with_multiple_commits;
 
     // Try to go beyond the history (we have 4 commits, so ~4 should fail)
-    run_bit_command(repository_dir.path(), &["branch", "too-far", "HEAD~4"])
-        .assert()
-        .failure();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "too-far", "HEAD~4"],
+    )
+    .assert()
+    .failure();
 
     Ok(())
 }
@@ -295,7 +316,7 @@ fn create_branch_from_ancestor_of_nonexistent_ref_fails(
     // Try to create a branch from ancestor of non-existent branch
     run_bit_command(
         repository_dir.path(),
-        &["branch", "new-branch", "nonexistent~2"],
+        &["branch", "create", "new-branch", "nonexistent~2"],
     )
     .assert()
     .failure();

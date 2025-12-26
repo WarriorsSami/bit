@@ -10,7 +10,7 @@ fn create_duplicate_branch(init_repository_dir: TempDir) -> Result<(), Box<dyn s
     let branch_name = "feature-branch";
 
     // create the branch first time - should succeed
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .success();
 
@@ -24,7 +24,7 @@ fn create_duplicate_branch(init_repository_dir: TempDir) -> Result<(), Box<dyn s
     assert!(branch_ref_path.exists());
 
     // attempt to create the same branch again - should fail
-    run_bit_command(repository_dir.path(), &["branch", branch_name])
+    run_bit_command(repository_dir.path(), &["branch", "create", branch_name])
         .assert()
         .failure()
         .stderr(predicate::str::contains("already exists"));

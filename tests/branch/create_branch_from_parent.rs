@@ -19,9 +19,12 @@ fn create_branch_from_parent_of_head(
     let expected_parent_id = get_parent_commit_id(repository_dir.path(), &head_content)?;
 
     // Create a branch from the parent of HEAD (HEAD^)
-    run_bit_command(repository_dir.path(), &["branch", "parent-branch", "HEAD^"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "parent-branch", "HEAD^"],
+    )
+    .assert()
+    .success();
 
     // Verify the branch was created
     let branch_path = repository_dir
@@ -59,9 +62,12 @@ fn create_branch_from_parent_of_branch(
         get_parent_commit_id(repository_dir.path(), &expected_main_id)?;
 
     // Create a branch from HEAD~2
-    run_bit_command(repository_dir.path(), &["branch", "main", "HEAD~2"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "main", "HEAD~2"],
+    )
+    .assert()
+    .success();
 
     let main_branch_path = repository_dir
         .path()
@@ -79,7 +85,7 @@ fn create_branch_from_parent_of_branch(
     // Create a branch from the parent of main (main^)
     run_bit_command(
         repository_dir.path(),
-        &["branch", "parent-of-main", "main^"],
+        &["branch", "create", "parent-of-main", "main^"],
     )
     .assert()
     .success();
@@ -120,9 +126,12 @@ fn create_branch_from_grandparent_of_head(
     let expected_grandparent_id = get_ancestor_commit_id(repository_dir.path(), &head_content, 2)?;
 
     // Create a branch from the grandparent of HEAD (HEAD^^)
-    run_bit_command(repository_dir.path(), &["branch", "grandparent", "HEAD^^"])
-        .assert()
-        .success();
+    run_bit_command(
+        repository_dir.path(),
+        &["branch", "create", "grandparent", "HEAD^^"],
+    )
+    .assert()
+    .success();
 
     // Verify the branch was created
     let grandparent_path = repository_dir
@@ -154,7 +163,7 @@ fn create_branch_from_parent_with_alias(
     // Create a branch from the parent of HEAD using @ alias (@^)
     run_bit_command(
         repository_dir.path(),
-        &["branch", "from-alias-parent", "@^"],
+        &["branch", "create", "from-alias-parent", "@^"],
     )
     .assert()
     .success();
@@ -180,7 +189,7 @@ fn create_branch_from_parent_of_nonexistent_ref_fails(
     // Try to create a branch from parent of non-existent branch
     run_bit_command(
         repository_dir.path(),
-        &["branch", "new-branch", "nonexistent^"],
+        &["branch", "create", "new-branch", "nonexistent^"],
     )
     .assert()
     .failure();

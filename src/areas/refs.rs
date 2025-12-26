@@ -3,9 +3,11 @@ use crate::artifacts::objects::object_id::ObjectId;
 use anyhow::Context;
 use derive_new::new;
 use file_guard::Lock;
+use std::cmp::PartialEq;
 use std::io::Write;
 use std::ops::DerefMut;
 use std::path::Path;
+use walkdir::WalkDir;
 
 #[derive(Debug, new)]
 pub struct Refs {
@@ -47,6 +49,12 @@ impl SymRefOrOid {
 }
 
 impl Refs {
+    pub fn is_current_branch(&self, branch_name: &BranchName) -> anyhow::Result<bool> {
+        let current_ref = self.current_ref(None)?;
+
+        Ok(branch_name.eq(&BranchName::try_parse_sym_ref_name(&current_ref)?))
+    }
+
     pub fn read_oid(&self, sym_ref_name: &SymRefName) -> anyhow::Result<Option<ObjectId>> {
         self.read_ref(BranchName::try_parse_sym_ref_name(sym_ref_name)?)
     }
@@ -173,6 +181,56 @@ impl Refs {
         }
 
         self.update_ref_file(branch_path, source_oid.as_ref().into())
+    }
+
+    pub fn delete_branch(&self, name: &BranchName) -> anyhow::Result<ObjectId> {
+        let branch_path = self.heads_path().join(name.as_ref()).into_boxed_path();
+
+        let oid = self.read_symref(branch_path.as_ref())?;
+        match oid {
+            Some(oid) => {
+                std::fs::remove_file(branch_path.as_ref()).with_context(|| {
+                    format!("failed to delete branch file at {:?}", branch_path)
+                })?;
+                self.prune_branch_empty_parent_dirs(branch_path.as_ref())?;
+
+                Ok(oid)
+            }
+            None => anyhow::bail!("branch {} does not exist", name),
+        }
+    }
+
+    pub fn list_branches(&self) -> anyhow::Result<Vec<SymRefName>> {
+        self.list_refs(self.heads_path().as_ref())
+    }
+
+    fn list_refs(&self, path: &Path) -> anyhow::Result<Vec<SymRefName>> {
+        Ok(WalkDir::new(path)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                if entry.path().is_file() {
+                    let relative_path = entry.path().strip_prefix(self.path.as_ref()).ok()?;
+                    Some(SymRefName::new(relative_path.to_string_lossy().to_string()))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>())
+    }
+
+    fn prune_branch_empty_parent_dirs(&self, path: &Path) -> anyhow::Result<()> {
+        if let Some(parent) = path.parent()
+            && parent != self.heads_path().as_ref()
+            && parent.read_dir()?.next().is_none()
+        {
+            std::fs::remove_dir(parent).with_context(|| {
+                format!("failed to remove empty branch directory at {:?}", parent)
+            })?;
+            self.prune_branch_empty_parent_dirs(parent)?;
+        }
+
+        Ok(())
     }
 
     pub fn head_path(&self) -> Box<Path> {
