@@ -171,7 +171,7 @@ enum Commands {
     },
 }
 
-#[derive(Debug, Clone, ValueEnum, Default)]
+#[derive(Debug, Clone, Copy, ValueEnum, Default, PartialEq, Eq)]
 pub enum CommitDisplayFormat {
     #[value(name = "medium", help = "Medium format")]
     #[default]
@@ -316,7 +316,7 @@ async fn run() -> Result<()> {
             repository.log(&LogOptions {
                 oneline: *oneline,
                 abbrev_commit: *abbrev_commit,
-                format: format.clone().unwrap_or_default(),
+                format: (*format).unwrap_or_default(),
                 decorate: (*decorate).unwrap_or_default(),
             })?
         }
