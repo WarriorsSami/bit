@@ -32,17 +32,10 @@ fn show_single_commit_with_format_oneline(
 
     let first_line = lines[0];
 
-    // The line should start with an abbreviated SHA (7 chars by default)
-    let parts: Vec<&str> = first_line.splitn(2, ' ').collect();
-    assert_eq!(
-        parts.len(),
-        2,
-        "Expected line to have SHA and message separated by space, got: {}",
-        first_line
-    );
-
-    let displayed_sha = parts[0];
-    let commit_message = parts[1];
+    // The line should start with a SHA (40 chars in oneline format when using --format)
+    // Format can be: "abc...xyz message" or "abc...xyz (HEAD -> master) message"
+    let sha_end = first_line.find(' ').unwrap();
+    let displayed_sha = &first_line[..sha_end];
 
     // Verify the SHA is 40 characters
     assert_eq!(
@@ -60,13 +53,25 @@ fn show_single_commit_with_format_oneline(
         displayed_sha
     );
 
-    // Verify the SHA matches the beginning of the full SHA
-    assert!(
-        expected_commit_sha.starts_with(displayed_sha),
-        "SHA '{}' does not match the beginning of full SHA '{}'",
-        displayed_sha,
-        expected_commit_sha
+    // Verify the SHA matches the expected SHA
+    assert_eq!(
+        displayed_sha, expected_commit_sha,
+        "SHA '{}' does not match expected SHA '{}'",
+        displayed_sha, expected_commit_sha
     );
+
+    // Extract the commit message (skip SHA and potential decoration)
+    let rest = &first_line[sha_end..].trim_start();
+    let commit_message = if rest.starts_with('(') {
+        // Has decoration, skip it
+        if let Some(closing_paren) = rest.find(')') {
+            rest[closing_paren + 1..].trim()
+        } else {
+            rest
+        }
+    } else {
+        rest
+    };
 
     // Verify the commit message
     assert_eq!(

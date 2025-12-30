@@ -1,5 +1,6 @@
 use crate::artifacts::branch::INVALID_BRANCH_NAME_REGEX;
 use anyhow::Context;
+use colored::Colorize;
 use derive_new::new;
 
 const REF_PREFIX: &str = "refs/heads/";
@@ -22,6 +23,16 @@ impl SymRefName {
 
     pub fn to_short_name(&self) -> anyhow::Result<String> {
         self.to_branch_name().map(|b| b.as_ref().to_string())
+    }
+
+    pub fn to_colored_name(&self, name: String) -> anyhow::Result<String> {
+        let colored_name = if self.is_detached_head() {
+            name.bold().cyan()
+        } else {
+            name.bold().green()
+        };
+
+        Ok(format!("{colored_name}"))
     }
 }
 

@@ -28,7 +28,14 @@ fn show_single_commit_with_abbrev_commit_flag(
 
     // Extract and validate the abbreviated commit SHA
     let first_line = stdout.lines().next().unwrap();
-    let displayed_commit_sha = first_line.strip_prefix("commit ").unwrap();
+    let after_commit_prefix = first_line.strip_prefix("commit ").unwrap();
+
+    // Extract SHA (may be followed by decoration like " (HEAD -> master)")
+    let displayed_commit_sha = if let Some(space_pos) = after_commit_prefix.find(' ') {
+        &after_commit_prefix[..space_pos]
+    } else {
+        after_commit_prefix
+    };
 
     // The abbreviated SHA should be 7 characters (default abbreviation length)
     assert_eq!(

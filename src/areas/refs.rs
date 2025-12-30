@@ -3,7 +3,7 @@ use crate::artifacts::objects::object_id::ObjectId;
 use anyhow::Context;
 use derive_new::new;
 use file_guard::Lock;
-use std::cmp::PartialEq;
+use std::collections::HashMap;
 use std::io::Write;
 use std::ops::DerefMut;
 use std::path::Path;
@@ -15,6 +15,7 @@ pub struct Refs {
 }
 
 const SYMREF_REGEX: &str = r"^ref: (.+)$";
+const HEAD_REF_NAME: &str = "HEAD";
 
 #[derive(Debug, Clone)]
 enum SymRefOrOid {
@@ -52,7 +53,7 @@ impl Refs {
     pub fn is_current_branch(&self, branch_name: &BranchName) -> anyhow::Result<bool> {
         let current_ref = self.current_ref(None)?;
 
-        Ok(branch_name.eq(&BranchName::try_parse_sym_ref_name(&current_ref)?))
+        Ok(branch_name == &BranchName::try_parse_sym_ref_name(&current_ref)?)
     }
 
     pub fn read_oid(&self, sym_ref_name: &SymRefName) -> anyhow::Result<Option<ObjectId>> {
@@ -216,6 +217,26 @@ impl Refs {
                     None
                 }
             })
+            .collect::<Vec<_>>())
+    }
+
+    pub fn reverse_refs(&self) -> anyhow::Result<HashMap<ObjectId, Vec<SymRefName>>> {
+        Ok(self
+            .list_all_refs()?
+            .into_iter()
+            .fold(HashMap::new(), |mut acc, sym_ref| {
+                if let Ok(Some(oid)) = self.read_oid(&sym_ref) {
+                    acc.entry(oid).or_insert_with(Vec::new).push(sym_ref);
+                }
+                acc
+            }))
+    }
+
+    fn list_all_refs(&self) -> anyhow::Result<Vec<SymRefName>> {
+        Ok(self
+            .list_refs(self.refs_path().as_ref())?
+            .into_iter()
+            .chain(std::iter::once(SymRefName::new(HEAD_REF_NAME.to_string())))
             .collect::<Vec<_>>())
     }
 

@@ -1,10 +1,11 @@
-use crate::CommitDisplayFormat;
 use crate::areas::repository::Repository;
+use crate::artifacts::branch::branch_name::SymRefName;
 use crate::artifacts::objects::object::Unpackable;
 use crate::artifacts::objects::object::{Object, Packable};
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::object_type::ObjectType;
 use crate::commands::porcelain::log::LogOptions;
+use crate::{CommitDecoration, CommitDisplayFormat};
 use anyhow::Context;
 use bytes::Bytes;
 use std::io::{BufRead, Write};
@@ -165,16 +166,24 @@ impl Commit {
         format_options: &LogOptions,
     ) -> anyhow::Result<()> {
         if format_options.oneline {
-            self.show_commit_oneline(repository, true)?;
+            self.show_commit_oneline(repository, true, CommitDecoration::Short)?;
             return Ok(());
         }
 
         match format_options.format {
             CommitDisplayFormat::Medium => {
-                self.show_commit_medium(repository, format_options.abbrev_commit)?;
+                self.show_commit_medium(
+                    repository,
+                    format_options.abbrev_commit,
+                    format_options.decorate,
+                )?;
             }
             CommitDisplayFormat::OneLine => {
-                self.show_commit_oneline(repository, format_options.abbrev_commit)?;
+                self.show_commit_oneline(
+                    repository,
+                    format_options.abbrev_commit,
+                    format_options.decorate,
+                )?;
             }
         }
 
@@ -185,11 +194,13 @@ impl Commit {
         &self,
         repository: &Repository,
         abbrev_commit: bool,
+        decoration: CommitDecoration,
     ) -> anyhow::Result<()> {
         writeln!(
             repository.writer(),
-            "commit {}",
-            self.abbrev_commit_id(abbrev_commit)?
+            "commit {}{}",
+            self.abbrev_commit_id(abbrev_commit)?,
+            self.commit_decoration(repository, decoration)?
         )?;
         writeln!(
             repository.writer(),
@@ -213,15 +224,77 @@ impl Commit {
         &self,
         repository: &Repository,
         abbrev_commit: bool,
+        decoration: CommitDecoration,
     ) -> anyhow::Result<()> {
         writeln!(
             repository.writer(),
-            "{} {}",
+            "{}{} {}",
             self.abbrev_commit_id(abbrev_commit)?,
+            self.commit_decoration(repository, decoration)?,
             self.short_message()
         )?;
 
         Ok(())
+    }
+
+    fn commit_decoration(
+        &self,
+        repository: &Repository,
+        decoration: CommitDecoration,
+    ) -> anyhow::Result<String> {
+        if decoration == CommitDecoration::None {
+            return Ok(String::new());
+        }
+
+        let commit_oid = self.object_id()?;
+        if let Some(ref_names) = repository.reverse_refs().get(&commit_oid) {
+            let (head, refs): (Vec<_>, Vec<_>) = ref_names.iter().partition(|ref_name| {
+                ref_name.is_detached_head() && !repository.current_ref().is_detached_head()
+            });
+            let head = head.into_iter().cloned().collect::<Vec<_>>();
+            let refs = refs.into_iter().cloned().collect::<Vec<_>>();
+
+            let names = refs
+                .into_iter()
+                .map(|ref_name| {
+                    Self::ref_decoration_name(
+                        head.first().cloned(),
+                        ref_name,
+                        repository,
+                        decoration,
+                    )
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+                .join(", ");
+
+            Ok(format!(" ({})", names))
+        } else {
+            Ok(String::new())
+        }
+    }
+
+    fn ref_decoration_name(
+        head: Option<SymRefName>,
+        ref_name: SymRefName,
+        repository: &Repository,
+        decoration: CommitDecoration,
+    ) -> anyhow::Result<String> {
+        let name = match decoration {
+            CommitDecoration::Short => ref_name.to_short_name()?,
+            CommitDecoration::Full => ref_name.as_ref().to_string(),
+            CommitDecoration::None => unreachable!(),
+        };
+        let name = ref_name.to_colored_name(name)?;
+
+        if let Some(head) = head
+            && ref_name == *repository.current_ref()
+        {
+            return Ok(head
+                .to_colored_name(format!("{} -> {name}", head.as_ref()))?
+                .to_string());
+        }
+
+        Ok(name)
     }
 
     fn abbrev_commit_id(&self, abbrev_commit: bool) -> anyhow::Result<String> {

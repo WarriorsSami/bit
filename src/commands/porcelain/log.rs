@@ -1,15 +1,19 @@
-use crate::CommitDisplayFormat;
 use crate::areas::repository::Repository;
+use crate::{CommitDecoration, CommitDisplayFormat};
 
 #[derive(Debug, Clone)]
 pub struct LogOptions {
     pub oneline: bool,
     pub abbrev_commit: bool,
     pub format: CommitDisplayFormat,
+    pub decorate: CommitDecoration,
 }
 
 impl Repository {
     pub fn log(&self, opts: &LogOptions) -> anyhow::Result<()> {
+        self.set_reverse_refs(self.refs().reverse_refs()?);
+        self.set_current_ref(self.refs().current_ref(None)?);
+
         let mut curr_commit_oid = self.refs().read_head()?;
 
         while let Some(commit_oid) = curr_commit_oid {

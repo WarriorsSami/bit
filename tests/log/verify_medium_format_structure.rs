@@ -49,7 +49,15 @@ fn verify_medium_format_structure(
     );
 
     // Extract and validate the commit SHA
-    let displayed_commit_sha = lines[0].strip_prefix("commit ").unwrap();
+    let after_commit_prefix = lines[0].strip_prefix("commit ").unwrap();
+
+    // Extract SHA (may be followed by decoration like " (HEAD -> master)")
+    let displayed_commit_sha = if let Some(space_pos) = after_commit_prefix.find(' ') {
+        &after_commit_prefix[..space_pos]
+    } else {
+        after_commit_prefix
+    };
+
     assert_eq!(
         displayed_commit_sha.len(),
         40,

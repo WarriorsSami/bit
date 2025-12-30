@@ -1,5 +1,10 @@
+mod show_commit_with_decoration_full;
+mod show_commit_with_decoration_none;
+mod show_commit_with_decoration_short;
+mod show_commit_with_decoration_short_oneline;
 mod show_linear_history_in_medium_format;
 mod show_log_with_no_commits;
+mod show_multiple_branches_with_decoration;
 mod show_multiple_commits_in_medium_format;
 mod show_multiple_commits_in_oneline_format;
 mod show_multiple_commits_with_abbrev_commit_flag;

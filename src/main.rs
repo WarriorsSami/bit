@@ -163,6 +163,11 @@ enum Commands {
         abbrev_commit: bool,
         #[arg(long, help = "Pretty format for log output")]
         format: Option<CommitDisplayFormat>,
+        #[arg(
+            long,
+            help = "Whether to decorate commit messages with refs (branches, tags, etc.)"
+        )]
+        decorate: Option<CommitDecoration>,
     },
 }
 
@@ -173,6 +178,14 @@ pub enum CommitDisplayFormat {
     Medium,
     #[value(name = "oneline", help = "One line format")]
     OneLine,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum, Default, PartialEq, Eq)]
+pub enum CommitDecoration {
+    None,
+    #[default]
+    Short,
+    Full,
 }
 
 #[derive(Subcommand)]
@@ -295,6 +308,7 @@ async fn run() -> Result<()> {
             oneline,
             abbrev_commit,
             format,
+            decorate,
         } => {
             let pwd = std::env::current_dir()?;
             let repository = Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
@@ -303,6 +317,7 @@ async fn run() -> Result<()> {
                 oneline: *oneline,
                 abbrev_commit: *abbrev_commit,
                 format: format.clone().unwrap_or_default(),
+                decorate: (*decorate).unwrap_or_default(),
             })?
         }
     }

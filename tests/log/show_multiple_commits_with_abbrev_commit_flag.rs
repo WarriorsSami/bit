@@ -59,7 +59,15 @@ fn show_multiple_commits_with_abbrev_commit_flag(
     let displayed_shas: Vec<&str> = stdout
         .lines()
         .filter(|line| line.starts_with("commit "))
-        .map(|line| line.strip_prefix("commit ").unwrap())
+        .map(|line| {
+            let after_prefix = line.strip_prefix("commit ").unwrap();
+            // Extract SHA (may be followed by decoration)
+            if let Some(space_pos) = after_prefix.find(' ') {
+                &after_prefix[..space_pos]
+            } else {
+                after_prefix
+            }
+        })
         .collect();
 
     // Verify we have exactly 3 commits

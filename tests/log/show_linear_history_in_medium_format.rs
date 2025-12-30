@@ -53,7 +53,7 @@ fn show_linear_history_in_medium_format(
     ];
 
     // Run the log command
-    let output = run_bit_command(repository_dir.path(), &["log"])
+    let output = run_bit_command(repository_dir.path(), &["log", "--decorate=none"])
         .assert()
         .success();
 

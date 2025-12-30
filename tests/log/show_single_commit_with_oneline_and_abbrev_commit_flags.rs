@@ -37,16 +37,9 @@ fn show_single_commit_with_oneline_and_abbrev_commit_flags(
     let first_line = lines[0];
 
     // The line should start with an abbreviated SHA (7 chars by default)
-    let parts: Vec<&str> = first_line.splitn(2, ' ').collect();
-    assert_eq!(
-        parts.len(),
-        2,
-        "Expected line to have SHA and message separated by space, got: {}",
-        first_line
-    );
-
-    let displayed_abbreviated_sha = parts[0];
-    let commit_message = parts[1];
+    // Format can be: "abc1234 message" or "abc1234 (HEAD -> master) message"
+    let sha_end = first_line.find(' ').unwrap();
+    let displayed_abbreviated_sha = &first_line[..sha_end];
 
     // Verify the abbreviated SHA is 7 characters
     assert_eq!(
@@ -73,6 +66,19 @@ fn show_single_commit_with_oneline_and_abbrev_commit_flags(
         displayed_abbreviated_sha,
         expected_commit_sha
     );
+
+    // Extract the commit message (skip SHA and potential decoration)
+    let rest = &first_line[sha_end..].trim_start();
+    let commit_message = if rest.starts_with('(') {
+        // Has decoration, skip it
+        if let Some(closing_paren) = rest.find(')') {
+            rest[closing_paren + 1..].trim()
+        } else {
+            rest
+        }
+    } else {
+        rest
+    };
 
     // Verify the commit message
     assert_eq!(

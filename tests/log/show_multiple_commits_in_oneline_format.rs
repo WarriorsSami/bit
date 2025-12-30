@@ -79,17 +79,9 @@ fn show_multiple_commits_in_oneline_format(
         .zip(expected_shas.iter().zip(expected_messages.iter()))
         .enumerate()
     {
-        let parts: Vec<&str> = line.splitn(2, ' ').collect();
-        assert_eq!(
-            parts.len(),
-            2,
-            "Line {} should have SHA and message separated by space, got: {}",
-            i + 1,
-            line
-        );
-
-        let displayed_abbreviated_sha = parts[0];
-        let commit_message = parts[1];
+        // Extract the SHA (first 7 characters before any space or decoration)
+        let sha_end = line.find(' ').unwrap_or(line.len());
+        let displayed_abbreviated_sha = &line[..sha_end];
 
         // Verify the abbreviated SHA is 7 characters
         assert_eq!(
@@ -118,6 +110,20 @@ fn show_multiple_commits_in_oneline_format(
             displayed_abbreviated_sha,
             expected_sha
         );
+
+        // Extract the commit message (skip SHA, potential decoration, and get the message)
+        // Format can be: "abc1234 message" or "abc1234 (HEAD -> master) message"
+        let rest = &line[sha_end..].trim_start();
+        let commit_message = if rest.starts_with('(') {
+            // Has decoration, skip it
+            if let Some(closing_paren) = rest.find(')') {
+                rest[closing_paren + 1..].trim()
+            } else {
+                rest
+            }
+        } else {
+            rest
+        };
 
         // Verify the commit message
         assert_eq!(
