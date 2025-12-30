@@ -151,6 +151,12 @@ enum Commands {
         #[arg(index = 1, help = "The target revision to checkout")]
         target_revision: String,
     },
+    #[command(
+        name = "log",
+        about = "Show commit logs",
+        long_about = "This command shows the commit logs of the repository."
+    )]
+    Log {},
 }
 
 #[derive(Subcommand)]
@@ -268,6 +274,12 @@ async fn run() -> Result<()> {
                 Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
             repository.checkout(target_revision.as_str()).await?
+        }
+        Commands::Log {} => {
+            let pwd = std::env::current_dir()?;
+            let repository = Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+
+            repository.log()?
         }
     }
 

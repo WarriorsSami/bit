@@ -1,0 +1,5 @@
+mod show_linear_history_in_medium_format;
+mod show_log_with_no_commits;
+mod show_multiple_commits_in_medium_format;
+mod show_single_commit_in_medium_format;
+mod verify_medium_format_structure;

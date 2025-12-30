@@ -1,16 +1,18 @@
+use crate::areas::repository::Repository;
 use crate::artifacts::objects::object::Unpackable;
 use crate::artifacts::objects::object::{Object, Packable};
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::object_type::ObjectType;
 use anyhow::Context;
 use bytes::Bytes;
+use colored::Colorize;
 use std::io::{BufRead, Write};
 
 #[derive(Debug, Clone)]
 pub struct Author {
     name: String,
     email: String,
-    timestamp: chrono::DateTime<chrono::Local>,
+    timestamp: chrono::DateTime<chrono::FixedOffset>,
 }
 
 impl Author {
@@ -18,20 +20,24 @@ impl Author {
         Author {
             name,
             email,
-            timestamp: chrono::Local::now(),
+            timestamp: chrono::Local::now().fixed_offset(),
         }
     }
 
     pub fn new_with_timestamp(
         name: String,
         email: String,
-        timestamp: chrono::DateTime<chrono::Local>,
+        timestamp: chrono::DateTime<chrono::FixedOffset>,
     ) -> Self {
         Author {
             name,
             email,
             timestamp,
         }
+    }
+
+    pub fn display_name(&self) -> String {
+        format!("{} <{}>", self.name, self.email)
     }
 
     pub fn display(&self) -> String {
@@ -50,7 +56,6 @@ impl Author {
         let timestamp = std::env::var("GIT_AUTHOR_DATE").ok().and_then(|date_str| {
             chrono::DateTime::parse_from_rfc2822(&date_str)
                 .or_else(|_| chrono::DateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S %z"))
-                .map(|dt| dt.with_timezone(&chrono::Local))
                 .ok()
         });
 
@@ -59,37 +64,49 @@ impl Author {
             None => Ok(Author::new(name, email)),
         }
     }
+
+    pub fn readable_timestamp(&self) -> String {
+        self.timestamp
+            .format("%a %b %-d %H:%M:%S %Y %z")
+            .to_string()
+    }
 }
 
 impl TryFrom<&str> for Author {
     type Error = anyhow::Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
+        // Format: "name <email> timestamp timezone"
+        // Split from right to get timezone and timestamp first
         let parts: Vec<&str> = value.rsplitn(3, ' ').collect();
         if parts.len() < 3 {
             return Err(anyhow::anyhow!("Invalid author format"));
         }
 
-        let email_part = parts[2];
-        let name_part =
-            &value[..value.len() - email_part.len() - parts[1].len() - parts[0].len() - 2];
-        let email = email_part
-            .trim_start_matches('<')
-            .trim_end_matches('>')
-            .to_string();
-        let name = name_part.trim().to_string();
+        let timezone = parts[0];
         let timestamp = parts[1]
             .parse::<i64>()
             .map_err(|_| anyhow::anyhow!("Invalid timestamp"))?;
-        let timezone = parts[0];
+        let name_email_part = parts[2]; // "name <email>"
+
+        // Extract email from within angle brackets
+        let email_start = name_email_part
+            .find('<')
+            .ok_or_else(|| anyhow::anyhow!("Invalid author format: missing '<'"))?;
+        let email_end = name_email_part
+            .find('>')
+            .ok_or_else(|| anyhow::anyhow!("Invalid author format: missing '>'"))?;
+
+        let name = name_email_part[..email_start].trim().to_string();
+        let email = name_email_part[email_start + 1..email_end].to_string();
+
         let datetime = chrono::DateTime::from_timestamp(timestamp, 0)
             .ok_or_else(|| anyhow::anyhow!("Invalid timestamp"))?;
         let datetime = chrono::DateTime::parse_from_str(
             &format!("{} {}", datetime.format("%Y-%m-%d %H:%M:%S"), timezone),
             "%Y-%m-%d %H:%M:%S %z",
         )
-        .map_err(|_| anyhow::anyhow!("Invalid timezone"))?
-        .with_timezone(&chrono::Local);
+        .map_err(|_| anyhow::anyhow!("Invalid timezone"))?;
 
         Ok(Author {
             name,
@@ -97,6 +114,13 @@ impl TryFrom<&str> for Author {
             timestamp: datetime,
         })
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub enum CommitDisplayFormat {
+    #[default]
+    Medium,
+    OneLine,
 }
 
 #[derive(Debug, Clone)]
@@ -134,6 +158,44 @@ impl Commit {
 
     pub fn parent(&self) -> Option<&ObjectId> {
         self.parent.as_ref()
+    }
+
+    pub fn author(&self) -> &Author {
+        &self.author
+    }
+
+    // TODO: define a RepositoryWriter trait to abstract over the writer using trait objects
+    pub fn display(
+        &self,
+        repository: &Repository,
+        format: CommitDisplayFormat,
+    ) -> anyhow::Result<()> {
+        match format {
+            CommitDisplayFormat::Medium => {
+                writeln!(
+                    repository.writer(),
+                    "commit {}",
+                    self.object_id()?.as_ref().yellow()
+                )?;
+                writeln!(
+                    repository.writer(),
+                    "Author: {}",
+                    self.author.display_name()
+                )?;
+                writeln!(
+                    repository.writer(),
+                    "Date:   {}",
+                    self.author.readable_timestamp()
+                )?;
+                writeln!(repository.writer())?;
+                for message_line in self.message.lines() {
+                    writeln!(repository.writer(), "    {}", message_line)?;
+                }
+            }
+            CommitDisplayFormat::OneLine => todo!(),
+        }
+
+        Ok(())
     }
 }
 

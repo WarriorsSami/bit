@@ -13,5 +13,6 @@ mod common;
 mod diff;
 mod hash_object;
 mod init;
+mod log;
 mod ls_tree;
 mod status;
