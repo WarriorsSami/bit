@@ -1,11 +1,12 @@
+use crate::CommitDisplayFormat;
 use crate::areas::repository::Repository;
 use crate::artifacts::objects::object::Unpackable;
 use crate::artifacts::objects::object::{Object, Packable};
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::object_type::ObjectType;
+use crate::commands::porcelain::log::LogOptions;
 use anyhow::Context;
 use bytes::Bytes;
-use colored::Colorize;
 use std::io::{BufRead, Write};
 
 #[derive(Debug, Clone)]
@@ -116,13 +117,6 @@ impl TryFrom<&str> for Author {
     }
 }
 
-#[derive(Debug, Clone, Default)]
-pub enum CommitDisplayFormat {
-    #[default]
-    Medium,
-    OneLine,
-}
-
 #[derive(Debug, Clone)]
 pub struct Commit {
     parent: Option<ObjectId>,
@@ -168,34 +162,74 @@ impl Commit {
     pub fn display(
         &self,
         repository: &Repository,
-        format: CommitDisplayFormat,
+        format_options: &LogOptions,
     ) -> anyhow::Result<()> {
-        match format {
+        if format_options.oneline {
+            self.show_commit_oneline(repository, true)?;
+            return Ok(());
+        }
+
+        match format_options.format {
             CommitDisplayFormat::Medium => {
-                writeln!(
-                    repository.writer(),
-                    "commit {}",
-                    self.object_id()?.as_ref().yellow()
-                )?;
-                writeln!(
-                    repository.writer(),
-                    "Author: {}",
-                    self.author.display_name()
-                )?;
-                writeln!(
-                    repository.writer(),
-                    "Date:   {}",
-                    self.author.readable_timestamp()
-                )?;
-                writeln!(repository.writer())?;
-                for message_line in self.message.lines() {
-                    writeln!(repository.writer(), "    {}", message_line)?;
-                }
+                self.show_commit_medium(repository, format_options.abbrev_commit)?;
             }
-            CommitDisplayFormat::OneLine => todo!(),
+            CommitDisplayFormat::OneLine => {
+                self.show_commit_oneline(repository, format_options.abbrev_commit)?;
+            }
         }
 
         Ok(())
+    }
+
+    fn show_commit_medium(
+        &self,
+        repository: &Repository,
+        abbrev_commit: bool,
+    ) -> anyhow::Result<()> {
+        writeln!(
+            repository.writer(),
+            "commit {}",
+            self.abbrev_commit_id(abbrev_commit)?
+        )?;
+        writeln!(
+            repository.writer(),
+            "Author: {}",
+            self.author.display_name()
+        )?;
+        writeln!(
+            repository.writer(),
+            "Date:   {}",
+            self.author.readable_timestamp()
+        )?;
+        writeln!(repository.writer())?;
+        for message_line in self.message.lines() {
+            writeln!(repository.writer(), "    {}", message_line)?;
+        }
+
+        Ok(())
+    }
+
+    fn show_commit_oneline(
+        &self,
+        repository: &Repository,
+        abbrev_commit: bool,
+    ) -> anyhow::Result<()> {
+        writeln!(
+            repository.writer(),
+            "{} {}",
+            self.abbrev_commit_id(abbrev_commit)?,
+            self.short_message()
+        )?;
+
+        Ok(())
+    }
+
+    fn abbrev_commit_id(&self, abbrev_commit: bool) -> anyhow::Result<String> {
+        if abbrev_commit {
+            Ok(self.object_id()?.to_short_oid().as_str().to_string())
+        } else {
+            Ok(self.object_id()?.as_ref().to_string())
+        }
     }
 }
 

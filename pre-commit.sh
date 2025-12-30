@@ -1,6 +1,28 @@
 #!/bin/sh
 set -eu
 
+# -------- ensure cargo is in PATH --------
+# Git hooks run with minimal environment, so we need to source the cargo env
+if [ -f "$HOME/.cargo/env" ]; then
+  . "$HOME/.cargo/env"
+fi
+
+# If cargo is still not in PATH, try common installation locations
+if ! command -v cargo >/dev/null 2>&1; then
+  # Try adding common cargo bin paths
+  if [ -d "$HOME/.cargo/bin" ]; then
+    export PATH="$HOME/.cargo/bin:$PATH"
+  fi
+fi
+
+# Final check - if cargo is still not found, print helpful error and exit
+if ! command -v cargo >/dev/null 2>&1; then
+  printf "Error: cargo command not found in PATH.\n"
+  printf "Please ensure Rust/Cargo is installed and accessible.\n"
+  printf "Current PATH: %s\n" "$PATH"
+  exit 1
+fi
+
 # -------- safe color setup (no errors when TERM/TTY missing) --------
 is_tty=0
 # stdout is a terminal?

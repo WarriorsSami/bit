@@ -1,5 +1,12 @@
 mod show_linear_history_in_medium_format;
 mod show_log_with_no_commits;
 mod show_multiple_commits_in_medium_format;
+mod show_multiple_commits_in_oneline_format;
+mod show_multiple_commits_with_abbrev_commit_flag;
 mod show_single_commit_in_medium_format;
+mod show_single_commit_in_oneline_format;
+mod show_single_commit_with_abbrev_commit_flag;
+mod show_single_commit_with_format_medium;
+mod show_single_commit_with_format_oneline;
+mod show_single_commit_with_oneline_and_abbrev_commit_flags;
 mod verify_medium_format_structure;

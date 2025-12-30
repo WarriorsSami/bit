@@ -1,9 +1,9 @@
 #![allow(dead_code)]
 
+use crate::commands::porcelain::log::LogOptions;
 use anyhow::Result;
 use areas::repository::Repository;
-use clap::{Parser, Subcommand};
-
+use clap::{Parser, Subcommand, ValueEnum};
 // TODO: improve error handling and messages
 // TODO: improve test harness using snapbox
 
@@ -156,7 +156,23 @@ enum Commands {
         about = "Show commit logs",
         long_about = "This command shows the commit logs of the repository."
     )]
-    Log {},
+    Log {
+        #[arg(long, help = "Show each commit on a single line")]
+        oneline: bool,
+        #[arg(long, help = "Show abbreviated commit hashes")]
+        abbrev_commit: bool,
+        #[arg(long, help = "Pretty format for log output")]
+        format: Option<CommitDisplayFormat>,
+    },
+}
+
+#[derive(Debug, Clone, ValueEnum, Default)]
+pub enum CommitDisplayFormat {
+    #[value(name = "medium", help = "Medium format")]
+    #[default]
+    Medium,
+    #[value(name = "oneline", help = "One line format")]
+    OneLine,
 }
 
 #[derive(Subcommand)]
@@ -275,11 +291,19 @@ async fn run() -> Result<()> {
 
             repository.checkout(target_revision.as_str()).await?
         }
-        Commands::Log {} => {
+        Commands::Log {
+            oneline,
+            abbrev_commit,
+            format,
+        } => {
             let pwd = std::env::current_dir()?;
             let repository = Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
 
-            repository.log()?
+            repository.log(&LogOptions {
+                oneline: *oneline,
+                abbrev_commit: *abbrev_commit,
+                format: format.clone().unwrap_or_default(),
+            })?
         }
     }
 
