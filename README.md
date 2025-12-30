@@ -10,9 +10,14 @@ A simple Git implementation written in Rust, based on the book ["Building Your O
 
 - **Repository initialization** (`bit init`) - Create a new Git repository
 - **Object hashing** (`bit hash-object`) - Hash files and store them in the object database
-- **Object inspection** (`bit cat-file`) - Display the contents of Git objects
+- **Tree listing** (`bit ls-tree`) - List the contents of tree objects
 - **File staging** (`bit add`) - Add files to the index (staging area)
 - **Committing** (`bit commit`) - Create commits from staged changes
+- **Status** (`bit status`) - Show the working tree status with staged, unstaged, and untracked files
+- **Diff** (`bit diff`) - Show changes between commits, commit and working tree, or index
+- **Branch management** (`bit branch`) - Create, list, and delete branches
+- **Checkout** (`bit checkout`) - Switch branches or restore working tree files
+- **Log** (`bit log`) - Show commit history with various formatting options
 
 ## Architecture
 
@@ -21,28 +26,38 @@ The project follows a clean architecture pattern with clear separation of concer
 ```
 src/
 ├── main.rs              # CLI interface and command routing
-├── lib.rs               # Library root
 ├── commands/            # Command implementations
 │   ├── plumbing/        # Low-level Git commands
-│   │   ├── cat_file.rs  # Object content display
-│   │   └── hash_object.rs # Object hashing
+│   │   ├── hash_object.rs # Object hashing
+│   │   └── ls_tree.rs   # Tree listing
 │   └── porcelain/       # High-level user commands
 │       ├── add.rs       # File staging
 │       ├── commit.rs    # Commit creation
+│       ├── status.rs    # Working tree status
+│       ├── diff.rs      # Show changes
+│       ├── branch.rs    # Branch management
+│       ├── checkout.rs  # Switch branches
+│       ├── log.rs       # Commit history
 │       └── init.rs      # Repository initialization
-└── domain/              # Core domain logic
-    ├── areas/           # Git's main areas
-    │   ├── database.rs  # Object database
-    │   ├── index.rs     # Staging area (index)
-    │   ├── refs.rs      # Reference management
-    │   ├── repository.rs # Repository operations
-    │   └── workspace.rs # Working directory
-    └── objects/         # Git object types
-        ├── blob.rs      # File content objects
-        ├── commit.rs    # Commit objects
-        ├── tree.rs      # Directory tree objects
-        ├── object_id.rs # SHA-1 identifiers
-        └── index_entry.rs # Index entry representation
+├── areas/               # Git's main areas
+│   ├── database.rs      # Object database
+│   ├── index.rs         # Staging area (index)
+│   ├── refs.rs          # Reference management
+│   ├── repository.rs    # Repository operations
+│   └── workspace.rs     # Working directory
+└── artifacts/           # Git artifacts and data structures
+    ├── objects/         # Git object types
+    │   ├── blob.rs      # File content objects
+    │   ├── commit.rs    # Commit objects
+    │   ├── tree.rs      # Directory tree objects
+    │   ├── object_id.rs # SHA-1 identifiers
+    │   └── index_entry.rs # Index entry representation
+    ├── branch/          # Branch-related structures
+    ├── checkout/        # Checkout operations
+    ├── database/        # Database structures
+    ├── diff/            # Diff algorithms and output
+    ├── index/           # Index structures
+    └── status/          # Status information
 ```
 
 ### Key Components
@@ -82,17 +97,17 @@ Initialize a new repository:
 ./target/release/bit init [path]
 ```
 
-Hash a file:
+Hash a file and optionally write it to the object database:
 ```bash
 ./target/release/bit hash-object [-w] <file>
 ```
 
-View object contents:
+List the contents of a tree object:
 ```bash
-./target/release/bit cat-file -p <sha>
+./target/release/bit ls-tree [-r] <tree-sha>
 ```
 
-Stage files:
+Stage files for commit:
 ```bash
 ./target/release/bit add <file1> [file2] ...
 ```
@@ -100,6 +115,64 @@ Stage files:
 Create a commit:
 ```bash
 ./target/release/bit commit -m "commit message"
+```
+
+Show working tree status:
+```bash
+./target/release/bit status [--porcelain]
+```
+
+Show changes:
+```bash
+# Show changes in working directory
+./target/release/bit diff
+
+# Show changes in staging area (index vs HEAD)
+./target/release/bit diff --cached
+
+# Show only file names and status
+./target/release/bit diff --name-status
+
+# Compare two commits
+./target/release/bit diff <commit-a> <commit-b>
+
+# Filter by file status (A=added, D=deleted, M=modified)
+./target/release/bit diff --diff-filter=AD <commit-a> <commit-b>
+```
+
+Manage branches:
+```bash
+# Create a new branch
+./target/release/bit branch create <branch-name> [source-revision]
+
+# List all branches
+./target/release/bit branch list [-v]
+
+# Delete branches
+./target/release/bit branch delete <branch-name> [branch-name2...] [-f]
+```
+
+Switch branches or restore files:
+```bash
+./target/release/bit checkout <target-revision>
+```
+
+View commit history:
+```bash
+# Show commit history
+./target/release/bit log
+
+# Show in oneline format
+./target/release/bit log --oneline
+
+# Show abbreviated commit hashes
+./target/release/bit log --abbrev-commit
+
+# Control decoration display (none, short, full)
+./target/release/bit log --decorate=short
+
+# Combine options
+./target/release/bit log --oneline --abbrev-commit --decorate=none
 ```
 
 ## How to Run Tests
@@ -129,14 +202,26 @@ Run specific test modules:
 # Test repository initialization
 cargo test init
 
-# Test index operations
-cargo test index_commands
-
-# Test blob operations
-cargo test blob_commands
+# Test add command
+cargo test add
 
 # Test commit operations  
-cargo test commit_commands
+cargo test commit
+
+# Test status command
+cargo test status
+
+# Test diff operations
+cargo test diff
+
+# Test branch operations
+cargo test branch
+
+# Test checkout operations
+cargo test checkout
+
+# Test log command
+cargo test log
 ```
 
 Run tests with output:
@@ -149,53 +234,63 @@ cargo test -- --nocapture
 The test suite includes:
 
 - **Integration tests** that verify command-line interface behavior
-- **Compatibility tests** that compare `bit` output with actual Git
-- **Hexdump utilities** for debugging binary index differences
-- **Concurrent operation tests** for index locking behavior
-- **Custom assertions** using `pretty_assertions` for better diff visualization
-
-The tests use the `assert_index_eq!` macro to compare binary index files with hexdump output for improved debugging when differences occur.
+- **End-to-end tests** for complex workflows (checkout with conflicts, branch operations, etc.)
+- **Diff algorithm tests** including hunk generation and various diff scenarios
+- **Property-based tests** using `proptest` for revision parsing and other operations
+- **Concurrent operation tests** for index locking and consistency
+- **Compatibility tests** that verify output matches Git's behavior
+- **Custom fixtures** for setting up repository states across multiple commits and branches
 
 ## Roadmap
 
 ### Current Status
 - ✅ Repository initialization
 - ✅ Object hashing and storage
-- ✅ Basic file staging (add command)
-- ✅ Simple commit creation
-- ✅ Object content inspection
-- ✅ Index file format compatibility with Git
+- ✅ File staging (add command with comprehensive index management)
+- ✅ Commit creation with proper tree generation
+- ✅ Tree listing and traversal
+- ✅ Status command with staged, unstaged, and untracked files
+- ✅ Diff command with hunks, cached mode, and commit comparison
+- ✅ Branch creation, listing, and deletion
+- ✅ Checkout with conflict detection
+- ✅ Log command with multiple format options and decorations
+- ✅ Index file format fully compatible with Git
+- ✅ Symbolic references (HEAD, branches) 
 
 ### Planned Features
 
 #### Short Term
-- [ ] Branch creation and switching
-- [ ] Basic merge operations
-- [ ] Status command to show working directory state
-- [ ] Log command to view commit history
-- [ ] Diff command to show changes
+- [ ] Advanced merge operations
+- [ ] Conflict resolution during merge
+- [ ] Interactive staging (add -p)
+- [ ] Stash functionality
+- [ ] Cherry-pick operations
 
 #### Medium Term
 - [ ] Remote repository support
 - [ ] Clone command
 - [ ] Push/pull operations
-- [ ] Tag management
-- [ ] Conflict resolution for merges
+- [ ] Tag management (lightweight and annotated)
+- [ ] Git hooks system
+- [ ] Reflog for tracking reference changes
 
 #### Long Term
-- [ ] Advanced merge strategies
-- [ ] Rebase operations
+- [ ] Pack files for efficient storage
+- [ ] Delta compression
+- [ ] Rebase operations (interactive and standard)
 - [ ] Submodule support
-- [ ] Hooks system
+- [ ] Worktree support
 - [ ] Performance optimizations for large repositories
+- [ ] Garbage collection
 
 ### Known Limitations
 
 - No networking support (clone, push, pull)
-- Limited merge capabilities
-- No branch management
-- Simplified object packing (no pack files)
-- Basic reference handling
+- Limited merge capabilities (no three-way merge yet)
+- No pack file support (all objects stored loose)
+- No reflog tracking
+- No git hooks
+- No interactive features (interactive add, rebase, etc.)
 
 ## Contributing
 
