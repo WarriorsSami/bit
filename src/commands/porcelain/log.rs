@@ -4,6 +4,7 @@ use crate::artifacts::diff::diff_target::DiffTarget;
 use crate::artifacts::objects::commit::Commit;
 use crate::artifacts::objects::object::Object;
 use crate::{CommitDecoration, CommitDisplayFormat};
+use colored::Colorize;
 
 #[derive(Debug, Clone)]
 pub struct LogOptions {
@@ -97,7 +98,7 @@ impl Repository {
         writeln!(
             self.writer(),
             "commit {}{}",
-            self.abbrev_commit_id(commit, abbrev_commit)?,
+            self.abbrev_commit_id(commit, abbrev_commit)?.yellow(),
             self.commit_decoration(commit, decoration)?
         )?;
         writeln!(self.writer(), "Author: {}", commit.author().display_name())?;
@@ -123,7 +124,7 @@ impl Repository {
         writeln!(
             self.writer(),
             "{}{} {}",
-            self.abbrev_commit_id(commit, abbrev_commit)?,
+            self.abbrev_commit_id(commit, abbrev_commit)?.yellow(),
             self.commit_decoration(commit, decoration)?,
             commit.short_message()
         )?;

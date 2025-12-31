@@ -1,5 +1,6 @@
 pub mod branch;
 pub mod checkout;
+pub mod core;
 pub mod database;
 pub mod diff;
 pub mod index;

@@ -1,9 +1,13 @@
 #![allow(dead_code)]
 
+use crate::artifacts::core::PagerWriter;
 use crate::commands::porcelain::log::LogOptions;
 use anyhow::Result;
 use areas::repository::Repository;
 use clap::{Parser, Subcommand, ValueEnum};
+use colored::control;
+use is_terminal::IsTerminal;
+use minus::{Pager, page_all};
 // TODO: improve error handling and messages
 // TODO: improve test harness using snapbox
 
@@ -222,7 +226,21 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
+    // Decide whether to use a pager or stdout directly FIRST, before parsing CLI
+    // This ensures color settings are applied before any colored output is generated
+    let use_pager = std::io::stdout().is_terminal() && std::env::var("NO_PAGER").is_err();
+
+    // Force colored output when using pager (since the final output goes to terminal via pager)
+    // We need to set this BEFORE parsing CLI and BEFORE any colored output is generated
+    if use_pager {
+        control::set_override(true);
+    } else if !std::io::stdout().is_terminal() {
+        // Disable colors when piping to non-terminal
+        control::set_override(false);
+    }
+
     let cli = Cli::parse();
+    let pager = Pager::new();
 
     match &cli.command {
         Commands::Init { path } => {
@@ -279,8 +297,14 @@ async fn run() -> Result<()> {
             new_revision,
         } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(
+                &pwd.to_string_lossy(),
+                if use_pager {
+                    Box::new(PagerWriter::new(pager.clone()))
+                } else {
+                    Box::new(std::io::stdout())
+                },
+            )?;
 
             repository
                 .diff(
@@ -290,14 +314,28 @@ async fn run() -> Result<()> {
                     old_revision.as_deref(),
                     new_revision.as_deref(),
                 )
-                .await?
+                .await?;
+
+            if use_pager {
+                page_all(pager)?;
+            }
         }
         Commands::Branch { action } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(
+                &pwd.to_string_lossy(),
+                if use_pager {
+                    Box::new(PagerWriter::new(pager.clone()))
+                } else {
+                    Box::new(std::io::stdout())
+                },
+            )?;
 
-            repository.branch(action)?
+            repository.branch(action)?;
+
+            if use_pager {
+                page_all(pager)?;
+            }
         }
         Commands::Checkout { target_revision } => {
             let pwd = std::env::current_dir()?;
@@ -314,7 +352,14 @@ async fn run() -> Result<()> {
             patch,
         } => {
             let pwd = std::env::current_dir()?;
-            let repository = Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let repository = Repository::new(
+                &pwd.to_string_lossy(),
+                if use_pager {
+                    Box::new(PagerWriter::new(pager.clone()))
+                } else {
+                    Box::new(std::io::stdout())
+                },
+            )?;
 
             repository.log(&LogOptions {
                 oneline: *oneline,
@@ -322,7 +367,11 @@ async fn run() -> Result<()> {
                 format: (*format).unwrap_or_default(),
                 decorate: (*decorate).unwrap_or_default(),
                 patch: *patch,
-            })?
+            })?;
+
+            if use_pager {
+                page_all(pager)?;
+            }
         }
     }
 

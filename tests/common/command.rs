@@ -125,6 +125,7 @@ pub fn init_repository_dir_for_diff_hunks(repository_dir: TempDir, file_a: Strin
 
 pub fn run_bit_command(dir: &Path, args: &[&str]) -> Command {
     let mut cmd = Command::cargo_bin("bit").expect("Failed to find bit binary");
+    cmd.envs(vec![("NO_PAGER", "1")]);
     cmd.current_dir(dir);
     for arg in args {
         cmd.arg(arg);

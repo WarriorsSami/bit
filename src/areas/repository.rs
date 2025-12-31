@@ -11,6 +11,10 @@ use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+const GIT_DIR: &str = ".git";
+const DATABASE_DIR: &str = "objects";
+const INDEX_FILE: &str = "index";
+
 pub struct Repository {
     path: Box<Path>,
     writer: RefCell<Box<dyn std::io::Write>>,
@@ -30,10 +34,10 @@ impl Repository {
             std::fs::create_dir_all(&path)?;
         }
 
-        let index = Index::new(path.join(".git").join("index").into_boxed_path());
-        let database = Database::new(path.join(".git").join("objects").into_boxed_path());
+        let index = Index::new(path.join(GIT_DIR).join(INDEX_FILE).into_boxed_path());
+        let database = Database::new(path.join(GIT_DIR).join(DATABASE_DIR).into_boxed_path());
         let workspace = Workspace::new(path.clone().into_boxed_path());
-        let refs = Refs::new(path.join(".git").into_boxed_path());
+        let refs = Refs::new(path.join(GIT_DIR).into_boxed_path());
         let current_ref = refs.current_ref(None)?;
 
         Ok(Repository {

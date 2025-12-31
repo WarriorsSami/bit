@@ -20,11 +20,6 @@ impl Repository {
         old_revision: Option<&str>,
         new_revision: Option<&str>,
     ) -> anyhow::Result<()> {
-        // TODO: fix pager
-        // if atty::is(atty::Stream::Stdout) {
-        //     Pager::with_pager("less -FRX").setup();
-        // }
-
         // If both commits are provided, compare them
         if let (Some(old_revision), Some(new_revision)) = (old_revision, new_revision) {
             // parse revisions to commit OIDs
