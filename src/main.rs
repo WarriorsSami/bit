@@ -128,9 +128,9 @@ enum Commands {
         )]
         diff_filter: Option<String>,
         #[arg(index = 1, help = "The first commit SHA to compare (optional)")]
-        commit_a: Option<String>,
+        old_revision: Option<String>,
         #[arg(index = 2, help = "The second commit SHA to compare (optional)")]
-        commit_b: Option<String>,
+        new_revision: Option<String>,
     },
     #[command(
         name = "branch",
@@ -168,6 +168,8 @@ enum Commands {
             help = "Whether to decorate commit messages with refs (branches, tags, etc.)"
         )]
         decorate: Option<CommitDecoration>,
+        #[arg(short, long, help = "Show the full diff of each commit")]
+        patch: bool,
     },
 }
 
@@ -273,8 +275,8 @@ async fn run() -> Result<()> {
             cached,
             name_status,
             diff_filter,
-            commit_a,
-            commit_b,
+            old_revision,
+            new_revision,
         } => {
             let pwd = std::env::current_dir()?;
             let mut repository =
@@ -285,8 +287,8 @@ async fn run() -> Result<()> {
                     *cached,
                     *name_status,
                     diff_filter.as_deref(),
-                    commit_a.as_deref(),
-                    commit_b.as_deref(),
+                    old_revision.as_deref(),
+                    new_revision.as_deref(),
                 )
                 .await?
         }
@@ -309,6 +311,7 @@ async fn run() -> Result<()> {
             abbrev_commit,
             format,
             decorate,
+            patch,
         } => {
             let pwd = std::env::current_dir()?;
             let repository = Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
@@ -318,6 +321,7 @@ async fn run() -> Result<()> {
                 abbrev_commit: *abbrev_commit,
                 format: (*format).unwrap_or_default(),
                 decorate: (*decorate).unwrap_or_default(),
+                patch: *patch,
             })?
         }
     }

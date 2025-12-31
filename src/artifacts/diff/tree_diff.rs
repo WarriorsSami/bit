@@ -1,4 +1,4 @@
-use crate::areas::repository::Repository;
+use crate::areas::database::Database;
 use crate::artifacts::database::database_entry::DatabaseEntry;
 use crate::artifacts::objects::object::ObjectBox;
 use crate::artifacts::objects::object_id::ObjectId;
@@ -91,15 +91,16 @@ impl TreeChangeType {
 pub type ChangeSet = BTreeMap<PathBuf, TreeChangeType>;
 pub type TreeEntryMap = BTreeMap<String, DatabaseEntry>;
 
+#[derive(Debug)]
 pub struct TreeDiff<'r> {
-    repository: &'r Repository,
+    database: &'r Database,
     change_set: ChangeSet,
 }
 
 impl<'r> TreeDiff<'r> {
-    pub fn new(repository: &'r Repository) -> Self {
+    pub fn new(database: &'r Database) -> Self {
         TreeDiff {
-            repository,
+            database,
             change_set: BTreeMap::new(),
         }
     }
@@ -110,8 +111,8 @@ impl<'r> TreeDiff<'r> {
 
     pub fn compare_oids(
         &mut self,
-        old: Option<ObjectId>,
-        new: Option<ObjectId>,
+        old: Option<&ObjectId>,
+        new: Option<&ObjectId>,
         prefix: &Path,
     ) -> anyhow::Result<()> {
         if old == new {
@@ -127,18 +128,18 @@ impl<'r> TreeDiff<'r> {
         Ok(())
     }
 
-    fn inflate_oid_to_tree_entries(&self, oid: Option<ObjectId>) -> anyhow::Result<TreeEntryMap> {
+    fn inflate_oid_to_tree_entries(&self, oid: Option<&ObjectId>) -> anyhow::Result<TreeEntryMap> {
         match oid {
             None => Ok(BTreeMap::new()),
             Some(oid) => Ok(self
-                .inflate_oid_to_tree(&oid)?
+                .inflate_oid_to_tree(oid)?
                 .into_entries()
                 .collect::<BTreeMap<_, _>>()),
         }
     }
 
     fn inflate_oid_to_tree(&'_ self, oid: &ObjectId) -> anyhow::Result<Tree<'_>> {
-        let object = self.repository.database().parse_object(oid)?;
+        let object = self.database.parse_object(oid)?;
 
         match object {
             ObjectBox::Tree(tree) => Ok(*tree),
@@ -168,14 +169,14 @@ impl<'r> TreeDiff<'r> {
             }
 
             let tree_a_oid = if entry.is_tree() {
-                Some(entry.oid.clone())
+                Some(&entry.oid)
             } else {
                 None
             };
             let tree_b_oid = if let Some(other) = other
                 && other.is_tree()
             {
-                Some(other.oid.clone())
+                Some(&other.oid)
             } else {
                 None
             };
@@ -216,7 +217,7 @@ impl<'r> TreeDiff<'r> {
             }
 
             if entry.is_tree() {
-                self.compare_oids(None, Some(entry.oid.clone()), &path)?;
+                self.compare_oids(None, Some(&entry.oid), &path)?;
             } else {
                 // This is a newly added blob file
                 self.change_set

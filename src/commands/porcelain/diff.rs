@@ -1,9 +1,10 @@
 use crate::areas::index::Index;
 use crate::areas::repository::Repository;
 use crate::areas::workspace::Workspace;
+use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::diff::diff_algorithm::{DiffAlgorithm, Hunk, MyersDiff};
 use crate::artifacts::diff::diff_target::DiffTarget;
-use crate::artifacts::diff::tree_diff::{DiffFilter, TreeDiff};
+use crate::artifacts::diff::tree_diff::DiffFilter;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::status::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
 use crate::artifacts::status::status_info::StatusInfo;
@@ -16,8 +17,8 @@ impl Repository {
         cached: bool,
         name_status: bool,
         diff_filter: Option<&str>,
-        commit_a: Option<&str>,
-        commit_b: Option<&str>,
+        old_revision: Option<&str>,
+        new_revision: Option<&str>,
     ) -> anyhow::Result<()> {
         // TODO: fix pager
         // if atty::is(atty::Stream::Stdout) {
@@ -25,10 +26,18 @@ impl Repository {
         // }
 
         // If both commits are provided, compare them
-        if let (Some(commit_a), Some(commit_b)) = (commit_a, commit_b) {
-            // parse raw commit SHA to OID
-            let commit_a = ObjectId::try_parse(String::from(commit_a))?;
-            let commit_b = ObjectId::try_parse(String::from(commit_b))?;
+        if let (Some(old_revision), Some(new_revision)) = (old_revision, new_revision) {
+            // parse revisions to commit OIDs
+            let commit_a = Revision::try_parse(old_revision)?
+                .resolve(self)?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Old revision could not be resolved: {}", old_revision)
+                })?;
+            let commit_b = Revision::try_parse(new_revision)?
+                .resolve(self)?
+                .ok_or_else(|| {
+                    anyhow::anyhow!("New revision could not be resolved: {}", new_revision)
+                })?;
 
             // parse raw diff filter to DiffFilter
             let diff_filter = if let Some(filter) = diff_filter {
@@ -64,8 +73,9 @@ impl Repository {
         name_status: bool,
         diff_filter: Option<DiffFilter>,
     ) -> anyhow::Result<()> {
-        let mut tree_diff = TreeDiff::new(self);
-        tree_diff.compare_oids(Some(commit_a), Some(commit_b), Path::new(""))?;
+        let tree_diff = self
+            .database()
+            .tree_diff(Some(&commit_a), Some(&commit_b))?;
         let changeset = tree_diff.changes();
 
         for (path, change_type) in changeset {

@@ -8,6 +8,7 @@ use walkdir::WalkDir;
 
 const IGNORED_PATHS: [&str; 3] = [".git", ".", ".."];
 
+#[derive(Debug)]
 pub struct Workspace {
     path: Box<Path>,
 }

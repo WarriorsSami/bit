@@ -1,7 +1,7 @@
 use crate::BranchAction;
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::branch_name::BranchName;
-use crate::artifacts::branch::revision::RevisionContext;
+use crate::artifacts::branch::revision::Revision;
 use colored::Colorize;
 
 impl Repository {
@@ -14,10 +14,7 @@ impl Repository {
                 let branch_name = BranchName::try_parse(branch_name.clone())?;
 
                 let source_oid = if let Some(source_refname) = source_refname {
-                    let revision_context = RevisionContext::new(self);
-                    let revision = RevisionContext::try_parse(source_refname.as_str())?;
-
-                    revision_context.resolve(revision)?
+                    Revision::try_parse(source_refname.as_str())?.resolve(self)?
                 } else {
                     self.refs().read_head()?
                 }

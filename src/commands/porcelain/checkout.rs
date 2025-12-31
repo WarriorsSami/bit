@@ -1,10 +1,8 @@
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::branch_name::SymRefName;
-use crate::artifacts::branch::revision::RevisionContext;
+use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::checkout::migration::Migration;
-use crate::artifacts::diff::tree_diff::TreeDiff;
 use crate::artifacts::objects::object_id::ObjectId;
-use std::path::Path;
 
 const DETACHMENT_NOTICE: &str = r#"
 You are in 'detached HEAD' state. You can look around, make experimental
@@ -25,11 +23,9 @@ impl Repository {
             .read_oid(&current_ref)?
             .ok_or_else(|| anyhow::anyhow!("no current HEAD to checkout from"))?;
 
-        // TODO: extract to common utility
-        let revision_context = RevisionContext::new(self);
-        let target_revision = RevisionContext::try_parse(target)?;
-        let target_oid = revision_context
-            .resolve(target_revision)?
+        let target_revision = Revision::try_parse(target)?;
+        let target_oid = target_revision
+            .resolve(self)?
             .ok_or_else(|| anyhow::anyhow!("target revision could not be resolved"))?;
 
         let index = self.index();
@@ -37,13 +33,9 @@ impl Repository {
 
         index.rehydrate()?;
 
-        // TODO: extract to common utility
-        let mut tree_diff = TreeDiff::new(self);
-        tree_diff.compare_oids(
-            Some(current_oid.clone()),
-            Some(target_oid.clone()),
-            Path::new(""),
-        )?;
+        let tree_diff = self
+            .database()
+            .tree_diff(Some(&current_oid), Some(&target_oid))?;
 
         let mut migration = Migration::new(self, &mut index, tree_diff);
         migration.apply_changes()?;

@@ -1,3 +1,4 @@
+use crate::artifacts::diff::tree_diff::TreeDiff;
 use crate::artifacts::objects::blob::Blob;
 use crate::artifacts::objects::commit::Commit;
 use crate::artifacts::objects::object::{Object, ObjectBox, Unpackable};
@@ -10,6 +11,7 @@ use fake::rand;
 use std::io::{BufRead, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
+#[derive(Debug)]
 pub struct Database {
     path: Box<Path>,
 }
@@ -21,6 +23,16 @@ impl Database {
 
     pub fn objects_path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn tree_diff(
+        &self,
+        old_oid: Option<&ObjectId>,
+        new_oid: Option<&ObjectId>,
+    ) -> anyhow::Result<TreeDiff<'_>> {
+        let mut tree_diff = TreeDiff::new(self);
+        tree_diff.compare_oids(old_oid, new_oid, Path::new(""))?;
+        Ok(tree_diff)
     }
 
     pub fn load(&self, object_id: &ObjectId) -> anyhow::Result<Bytes> {

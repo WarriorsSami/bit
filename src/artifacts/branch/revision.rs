@@ -5,12 +5,6 @@ use crate::artifacts::objects::OBJECT_ID_LENGTH;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::object_type::ObjectType;
 use anyhow::Context;
-use derive_new::new;
-
-#[derive(new)]
-pub struct RevisionContext<'r> {
-    repository: &'r Repository,
-}
 
 /// Represents a revision specification that can be used to identify commits.
 ///
@@ -56,14 +50,14 @@ pub enum Revision {
     Parent(Box<Revision>),
 }
 
-impl<'r> RevisionContext<'r> {
-    pub fn resolve(&self, revision: Revision) -> anyhow::Result<Option<ObjectId>> {
-        match revision {
+impl Revision {
+    pub fn resolve(&self, repository: &Repository) -> anyhow::Result<Option<ObjectId>> {
+        match self {
             Revision::Ref(branch_name) => {
                 let name_str = branch_name.as_ref();
 
                 // Try to resolve as a ref first
-                match self.repository.refs().read_ref(branch_name.clone()) {
+                match repository.refs().read_ref(branch_name.clone()) {
                     Ok(Some(oid)) => Ok(Some(oid)),
                     Ok(None) => {
                         // Symbolic ref - not supported yet
@@ -73,7 +67,7 @@ impl<'r> RevisionContext<'r> {
                         // Ref doesn't exist - try OID if it looks like one
                         if Self::looks_like_oid(name_str) {
                             // Try to resolve as OID
-                            match self.resolve_oid(name_str) {
+                            match Self::resolve_oid(name_str, repository) {
                                 Ok(oid) => Ok(Some(oid)),
                                 Err(oid_err) => {
                                     // OID resolution also failed, return OID error (more informative)
@@ -88,12 +82,12 @@ impl<'r> RevisionContext<'r> {
                 }
             }
             Revision::Parent(base_revision) => {
-                self.resolve_commit_parent(self.resolve(*base_revision)?)
+                Self::resolve_commit_parent(base_revision.resolve(repository)?, repository)
             }
             Revision::Ancestor(base_revision, generations) => {
-                let mut oid = self.resolve(*base_revision)?;
-                for _ in 0..generations {
-                    oid = self.resolve_commit_parent(oid)?;
+                let mut oid = base_revision.resolve(repository)?;
+                for _ in 0..*generations {
+                    oid = Self::resolve_commit_parent(oid, repository)?;
                 }
 
                 Ok(oid)
@@ -101,10 +95,12 @@ impl<'r> RevisionContext<'r> {
         }
     }
 
-    fn resolve_commit_parent(&self, oid: Option<ObjectId>) -> anyhow::Result<Option<ObjectId>> {
+    fn resolve_commit_parent(
+        oid: Option<ObjectId>,
+        repository: &Repository,
+    ) -> anyhow::Result<Option<ObjectId>> {
         if let Some(oid) = oid {
-            let commit = self
-                .repository
+            let commit = repository
                 .database()
                 .parse_object_as_commit(&oid)?
                 .ok_or_else(|| anyhow::anyhow!("object {} is not a commit", oid))?;
@@ -116,12 +112,12 @@ impl<'r> RevisionContext<'r> {
         }
     }
 
-    fn resolve_oid(&self, oid_str: &str) -> anyhow::Result<ObjectId> {
+    fn resolve_oid(oid_str: &str, repository: &Repository) -> anyhow::Result<ObjectId> {
         // Check if it's a full OID (40 hex characters)
         if oid_str.len() == OBJECT_ID_LENGTH && oid_str.chars().all(|c| c.is_ascii_hexdigit()) {
             let oid = ObjectId::try_parse(oid_str.to_string())?;
             // Validate that it's a commit
-            self.validate_oid_is_commit(&oid)?;
+            Self::validate_oid_is_commit(&oid, repository)?;
             return Ok(oid);
         }
 
@@ -130,7 +126,7 @@ impl<'r> RevisionContext<'r> {
             anyhow::bail!("invalid object id: {}", oid_str);
         }
 
-        let matches = self.repository.database().find_objects_by_prefix(oid_str)?;
+        let matches = repository.database().find_objects_by_prefix(oid_str)?;
 
         match matches.len() {
             0 => anyhow::bail!(
@@ -140,7 +136,7 @@ impl<'r> RevisionContext<'r> {
             1 => {
                 let oid = &matches[0];
                 // Validate that it's a commit
-                self.validate_oid_is_commit(oid)?;
+                Self::validate_oid_is_commit(oid, repository)?;
                 Ok(oid.clone())
             }
             _ => {
@@ -148,7 +144,7 @@ impl<'r> RevisionContext<'r> {
                 let commit_matches: Vec<_> = matches
                     .iter()
                     .filter(|oid| {
-                        self.repository
+                        repository
                             .database()
                             .get_object_type(oid)
                             .map(|t| t == ObjectType::Commit)
@@ -178,9 +174,8 @@ impl<'r> RevisionContext<'r> {
         }
     }
 
-    fn validate_oid_is_commit(&self, oid: &ObjectId) -> anyhow::Result<()> {
-        let obj_type = self
-            .repository
+    fn validate_oid_is_commit(oid: &ObjectId, repository: &Repository) -> anyhow::Result<()> {
+        let obj_type = repository
             .database()
             .get_object_type(oid)
             .with_context(|| format!("object {} not found", oid))?;
@@ -207,7 +202,7 @@ impl<'r> RevisionContext<'r> {
                 .with_context(|| format!("failed to parse revision: {revision}"))?;
 
             let base_rev = &caps[1];
-            let base_revision = RevisionContext::try_parse(base_rev)?;
+            let base_revision = Self::try_parse(base_rev)?;
 
             Ok(Revision::Parent(Box::new(base_revision)))
         } else if regex::Regex::new(ANCESTOR_REGEX)
@@ -224,7 +219,7 @@ impl<'r> RevisionContext<'r> {
                 .parse()
                 .with_context(|| format!("failed to parse generations in revision: {revision}"))?;
 
-            let base_revision = RevisionContext::try_parse(base_rev)?;
+            let base_revision = Self::try_parse(base_rev)?;
 
             Ok(Revision::Ancestor(Box::new(base_revision), generations))
         } else {
@@ -249,7 +244,7 @@ mod tests {
     // Unit tests for basic functionality
     #[test]
     fn test_parse_simple_ref() {
-        let result = RevisionContext::try_parse("main").unwrap();
+        let result = Revision::try_parse("main").unwrap();
         if let Revision::Ref(name) = result {
             assert_eq!(name.as_ref(), "main");
         } else {
@@ -259,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_parse_head_alias() {
-        let result = RevisionContext::try_parse("@").unwrap();
+        let result = Revision::try_parse("@").unwrap();
         if let Revision::Ref(name) = result {
             assert_eq!(name.as_ref(), "HEAD");
         } else {
@@ -269,7 +264,7 @@ mod tests {
 
     #[test]
     fn test_parse_parent() {
-        let result = RevisionContext::try_parse("main^").unwrap();
+        let result = Revision::try_parse("main^").unwrap();
         if let Revision::Parent(base) = result {
             if let Revision::Ref(name) = *base {
                 assert_eq!(name.as_ref(), "main");
@@ -283,7 +278,7 @@ mod tests {
 
     #[test]
     fn test_parse_ancestor() {
-        let result = RevisionContext::try_parse("main~3").unwrap();
+        let result = Revision::try_parse("main~3").unwrap();
         if let Revision::Ancestor(base, generation) = result {
             assert_eq!(generation, 3);
             if let Revision::Ref(name) = *base {
@@ -298,7 +293,7 @@ mod tests {
 
     #[test]
     fn test_parse_nested_parent() {
-        let result = RevisionContext::try_parse("main^^").unwrap();
+        let result = Revision::try_parse("main^^").unwrap();
         // Should be Parent(Parent(Ref("main")))
         if let Revision::Parent(first_parent) = result {
             if let Revision::Parent(second_parent) = *first_parent {
@@ -317,67 +312,67 @@ mod tests {
 
     #[test]
     fn test_parse_invalid_branch_name_empty() {
-        let result = RevisionContext::try_parse("");
+        let result = Revision::try_parse("");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_with_space() {
-        let result = RevisionContext::try_parse("invalid name");
+        let result = Revision::try_parse("invalid name");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_with_colon() {
-        let result = RevisionContext::try_parse("invalid:name");
+        let result = Revision::try_parse("invalid:name");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_starts_with_dot() {
-        let result = RevisionContext::try_parse(".invalid");
+        let result = Revision::try_parse(".invalid");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_starts_with_slash() {
-        let result = RevisionContext::try_parse("/invalid");
+        let result = Revision::try_parse("/invalid");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_ends_with_slash() {
-        let result = RevisionContext::try_parse("invalid/");
+        let result = Revision::try_parse("invalid/");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_ends_with_lock() {
-        let result = RevisionContext::try_parse("branch.lock");
+        let result = Revision::try_parse("branch.lock");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_branch_name_double_dot() {
-        let result = RevisionContext::try_parse("feature..name");
+        let result = Revision::try_parse("feature..name");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_parent_with_invalid_base() {
-        let result = RevisionContext::try_parse(".invalid^");
+        let result = Revision::try_parse(".invalid^");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_invalid_ancestor_with_invalid_base() {
-        let result = RevisionContext::try_parse(".invalid~5");
+        let result = Revision::try_parse(".invalid~5");
         assert!(result.is_err());
     }
 
     #[test]
     fn test_parse_ancestor_with_zero() {
-        let result = RevisionContext::try_parse("main~0").unwrap();
+        let result = Revision::try_parse("main~0").unwrap();
         if let Revision::Ancestor(_, generation) = result {
             assert_eq!(generation, 0);
         } else {
@@ -387,7 +382,7 @@ mod tests {
 
     #[test]
     fn test_parse_valid_hierarchical_branch_name() {
-        let result = RevisionContext::try_parse("feature/my-feature").unwrap();
+        let result = Revision::try_parse("feature/my-feature").unwrap();
         if let Revision::Ref(name) = result {
             assert_eq!(name.as_ref(), "feature/my-feature");
         } else {
@@ -398,7 +393,7 @@ mod tests {
     #[test]
     fn test_parse_full_oid() {
         let oid = "a".repeat(40);
-        let result = RevisionContext::try_parse(&oid).unwrap();
+        let result = Revision::try_parse(&oid).unwrap();
         // OIDs are parsed as Ref initially, resolved as OID during resolution
         if let Revision::Ref(name) = result {
             assert_eq!(name.as_ref(), oid);
@@ -410,7 +405,7 @@ mod tests {
     #[test]
     fn test_parse_abbreviated_oid() {
         let oid = "a1b2c3d";
-        let result = RevisionContext::try_parse(oid).unwrap();
+        let result = Revision::try_parse(oid).unwrap();
         // OIDs are parsed as Ref initially, resolved as OID during resolution
         if let Revision::Ref(name) = result {
             assert_eq!(name.as_ref(), oid);
@@ -422,7 +417,7 @@ mod tests {
     #[test]
     fn test_parse_oid_minimum_length() {
         let oid = "a1b2";
-        let result = RevisionContext::try_parse(oid).unwrap();
+        let result = Revision::try_parse(oid).unwrap();
         // OIDs are parsed as Ref initially, resolved as OID during resolution
         if let Revision::Ref(name) = result {
             assert_eq!(name.as_ref(), oid);
@@ -433,7 +428,7 @@ mod tests {
 
     #[test]
     fn test_parse_oid_too_short_treated_as_ref() {
-        let result = RevisionContext::try_parse("abc");
+        let result = Revision::try_parse("abc");
         // Should parse as branch name (not OID since it's too short)
         assert!(result.is_ok());
         if let Ok(Revision::Ref(name)) = result {
@@ -446,7 +441,7 @@ mod tests {
     #[test]
     fn test_parse_oid_with_parent() {
         let oid = "a".repeat(40) + "^";
-        let result = RevisionContext::try_parse(&oid).unwrap();
+        let result = Revision::try_parse(&oid).unwrap();
         if let Revision::Parent(base) = result {
             if let Revision::Ref(name) = *base {
                 assert_eq!(name.as_ref(), "a".repeat(40));
@@ -461,7 +456,7 @@ mod tests {
     #[test]
     fn test_parse_oid_with_ancestor() {
         let oid = "a".repeat(40) + "~3";
-        let result = RevisionContext::try_parse(&oid).unwrap();
+        let result = Revision::try_parse(&oid).unwrap();
         if let Revision::Ancestor(base, generation) = result {
             assert_eq!(generation, 3);
             if let Revision::Ref(name) = *base {
@@ -477,7 +472,7 @@ mod tests {
     #[test]
     fn test_parse_abbreviated_oid_with_parent() {
         let oid = "a1b2c3d^";
-        let result = RevisionContext::try_parse(oid).unwrap();
+        let result = Revision::try_parse(oid).unwrap();
         if let Revision::Parent(base) = result {
             if let Revision::Ref(name) = *base {
                 assert_eq!(name.as_ref(), "a1b2c3d");
@@ -528,7 +523,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_valid_branch_names_parse_successfully(name in valid_branch_name_strategy()) {
-            let result = RevisionContext::try_parse(&name);
+            let result = Revision::try_parse(&name);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
             if let Revision::Ref(parsed_name) = parsed {
@@ -540,14 +535,14 @@ mod tests {
 
         #[test]
         fn prop_invalid_branch_names_fail_to_parse(name in invalid_branch_name_strategy()) {
-            let result = RevisionContext::try_parse(&name);
+            let result = Revision::try_parse(&name);
             prop_assert!(result.is_err());
         }
 
         #[test]
         fn prop_parent_suffix_creates_parent_revision(name in valid_branch_name_strategy()) {
             let revision_str = format!("{}^", name);
-            let result = RevisionContext::try_parse(&revision_str);
+            let result = Revision::try_parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
 
@@ -568,7 +563,7 @@ mod tests {
             generations in 0usize..100
         ) {
             let revision_str = format!("{}~{}", name, generations);
-            let result = RevisionContext::try_parse(&revision_str);
+            let result = Revision::try_parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
             if let Revision::Ancestor(base, generation) = parsed {
@@ -592,7 +587,7 @@ mod tests {
             for _ in 0..parent_count {
                 revision_str.push('^');
             }
-            let result = RevisionContext::try_parse(&revision_str);
+            let result = Revision::try_parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
 
@@ -615,8 +610,8 @@ mod tests {
 
         #[test]
         fn prop_parsing_is_deterministic(name in valid_branch_name_strategy()) {
-            let result1 = RevisionContext::try_parse(&name);
-            let result2 = RevisionContext::try_parse(&name);
+            let result1 = Revision::try_parse(&name);
+            let result2 = Revision::try_parse(&name);
             prop_assert!(result1.is_ok());
             prop_assert!(result2.is_ok());
             // Both should parse the same way
@@ -626,7 +621,7 @@ mod tests {
     // Separate test for alias resolution (not a property test since it has no inputs)
     #[test]
     fn test_alias_resolution_works() {
-        let result = RevisionContext::try_parse("@");
+        let result = Revision::try_parse("@");
         assert!(result.is_ok());
         let parsed = result.unwrap();
         if let Revision::Ref(resolved) = parsed {
@@ -649,7 +644,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_valid_oids_parse_successfully(oid in valid_oid_strategy()) {
-            let result = RevisionContext::try_parse(&oid);
+            let result = Revision::try_parse(&oid);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
             // OIDs are parsed as Ref, resolved as OID during resolution phase
@@ -663,7 +658,7 @@ mod tests {
         #[test]
         fn prop_oid_with_parent_suffix_creates_parent_revision(oid in valid_oid_strategy()) {
             let revision_str = format!("{}^", oid);
-            let result = RevisionContext::try_parse(&revision_str);
+            let result = Revision::try_parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
 
@@ -684,7 +679,7 @@ mod tests {
             generations in 0usize..100
         ) {
             let revision_str = format!("{}~{}", oid, generations);
-            let result = RevisionContext::try_parse(&revision_str);
+            let result = Revision::try_parse(&revision_str);
             prop_assert!(result.is_ok());
             let parsed = result.unwrap();
 
@@ -703,7 +698,7 @@ mod tests {
         #[test]
         fn prop_short_hex_strings_parse_as_ref_not_oid(length in 1usize..4) {
             let hex_str = "a".repeat(length);
-            let result = RevisionContext::try_parse(&hex_str);
+            let result = Revision::try_parse(&hex_str);
             // Should not parse as OID (too short), should parse as valid branch name
             prop_assert!(result.is_ok());
             if let Ok(Revision::Ref(name)) = result {
