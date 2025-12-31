@@ -109,6 +109,14 @@ impl<'r> TreeDiff<'r> {
         &self.change_set
     }
 
+    pub fn get_entries(&self, path: &Path) -> (Option<&DatabaseEntry>, Option<&DatabaseEntry>) {
+        if let Some(change) = self.change_set.get(path) {
+            (change.old_entry(), change.new_entry())
+        } else {
+            (None, None)
+        }
+    }
+
     pub fn compare_oids(
         &mut self,
         old: Option<&ObjectId>,

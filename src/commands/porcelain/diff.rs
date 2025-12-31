@@ -46,9 +46,7 @@ impl Repository {
                 None
             };
 
-            return self
-                .diff_commits(commit_a, commit_b, name_status, diff_filter)
-                .await;
+            return self.diff_commits(commit_a, commit_b, name_status, diff_filter);
         }
 
         let index = self.index();
@@ -66,7 +64,7 @@ impl Repository {
         Ok(())
     }
 
-    async fn diff_commits(
+    fn diff_commits(
         &self,
         commit_a: ObjectId,
         commit_b: ObjectId,
@@ -95,7 +93,11 @@ impl Repository {
                     path.display()
                 )?;
             } else {
-                writeln!(self.writer(), "Not implemented yet")?;
+                let (old_entry, new_entry) = tree_diff.get_entries(path);
+                self.print_diff(
+                    &mut DiffTarget::from_entry(path, old_entry, self.database())?,
+                    &mut DiffTarget::from_entry(path, new_entry, self.database())?,
+                )?;
             }
         }
 
@@ -172,7 +174,7 @@ impl Repository {
         Ok(())
     }
 
-    fn print_diff(&self, a: &mut DiffTarget, b: &mut DiffTarget) -> anyhow::Result<()> {
+    pub fn print_diff(&self, a: &mut DiffTarget, b: &mut DiffTarget) -> anyhow::Result<()> {
         if a.oid == b.oid && a.mode == b.mode {
             return Ok(());
         }

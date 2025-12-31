@@ -3,6 +3,7 @@ use crate::common::file::{FileSpec, write_file};
 use assert_fs::TempDir;
 use pretty_assertions::assert_eq;
 use rstest::rstest;
+use sha1::Digest;
 
 #[rstest]
 fn create_branch_from_ambiguous_oid_shows_candidates(
@@ -15,69 +16,145 @@ fn create_branch_from_ambiguous_oid_shows_candidates(
         .assert()
         .success();
 
-    // Create multiple commits to increase the chance of OID collision
-    // (though in practice, this is extremely unlikely with real SHA-1)
-    let mut commit_oids = Vec::new();
+    // Create an initial commit to have a proper tree
+    let file1 = FileSpec::new(
+        repository_dir.path().join("file1.txt"),
+        "initial content".to_string(),
+    );
+    write_file(file1);
 
-    for i in 0..10 {
-        let file = FileSpec::new(
-            repository_dir.path().join(format!("file{}.txt", i)),
-            format!("content {}", i),
+    run_bit_command(repository_dir.path(), &["add", "."])
+        .assert()
+        .success();
+
+    bit_commit(repository_dir.path(), "Initial commit")
+        .assert()
+        .success();
+
+    let initial_commit_oid = get_head_commit_sha(repository_dir.path())?;
+
+    // Now manually create commits with carefully crafted content to produce colliding OIDs
+    // We'll create raw commit objects directly in the .git/objects directory
+    // using crafted content that produces OIDs with the same 4-character prefix
+
+    // Strategy: Create commit objects with slightly different timestamps/padding
+    // to get OIDs that share a prefix. We'll iterate to find collisions.
+
+    let mut created_commits = Vec::new();
+    let objects_dir = repository_dir.path().join(".git").join("objects");
+
+    // Generate commits with varying content until we find at least 2 with same 4-char prefix
+    let mut prefix_map: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+
+    for i in 0..500 {
+        // Create a commit with varying content
+        let padding = "x".repeat(i % 100);
+        let commit_content = format!(
+            "tree {}\nparent {}\nauthor Test User <test@example.com> {} +0000\ncommitter Test User <test@example.com> {} +0000\n\nTest commit {}{}\n",
+            &initial_commit_oid[..40], // Use the tree from initial commit
+            &initial_commit_oid[..40], // Parent is initial commit
+            1234567890 + i,
+            1234567890 + i,
+            i,
+            padding
         );
-        write_file(file);
 
-        run_bit_command(repository_dir.path(), &["add", "."])
-            .assert()
-            .success();
+        // Calculate SHA-1 of this commit
+        let commit_bytes = format!("commit {}\0{}", commit_content.len(), commit_content);
+        let mut hasher = sha1::Sha1::new();
+        hasher.update(commit_bytes.as_bytes());
+        let oid = format!("{:x}", hasher.finalize());
 
-        bit_commit(repository_dir.path(), &format!("Commit {}", i))
-            .assert()
-            .success();
+        // Store by 4-char prefix
+        let prefix = &oid[..4];
+        prefix_map
+            .entry(prefix.to_string())
+            .or_default()
+            .push(oid.clone());
 
-        // Get the commit OID (resolve symbolic references)
-        let oid = get_head_commit_sha(repository_dir.path())?;
-        commit_oids.push(oid);
+        // Write the object to disk
+        let oid_prefix = &oid[..2];
+        let oid_suffix = &oid[2..];
+        let obj_dir = objects_dir.join(oid_prefix);
+        std::fs::create_dir_all(&obj_dir)?;
+
+        let obj_path = obj_dir.join(oid_suffix);
+        let mut encoder =
+            flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+        use std::io::Write;
+        encoder.write_all(commit_bytes.as_bytes())?;
+        let compressed = encoder.finish()?;
+        std::fs::write(obj_path, compressed)?;
+
+        created_commits.push(oid);
     }
 
-    // Find a prefix that might be ambiguous (try with 4 characters - minimum for OID)
-    // Try progressively longer prefixes to find an ambiguous one
-    let mut found_ambiguous = false;
+    // Find a prefix with at least 2 commits
+    let mut test_prefix = None;
+    let mut matching_oids = Vec::new();
 
-    for prefix_len in 4..=6 {
-        let prefix = &commit_oids[0][..prefix_len];
-        let matching_oids: Vec<_> = commit_oids
-            .iter()
-            .filter(|oid| oid.starts_with(prefix))
-            .collect();
-
-        if matching_oids.len() > 1 {
-            // We have an ambiguous prefix!
-            found_ambiguous = true;
-
-            let output = run_bit_command(
-                repository_dir.path(),
-                &["branch", "create", "test-branch", prefix],
-            )
-            .assert()
-            .failure();
-
-            let stderr = String::from_utf8(output.get_output().stderr.clone())?;
-            println!("Actual error for ambiguous OID '{}': {}", prefix, stderr);
-            // The error should mention ambiguity
-            assert!(
-                stderr.contains("ambiguous"),
-                "Expected ambiguous error, got: {}",
-                stderr
-            );
+    for (prefix, oids) in prefix_map.iter() {
+        if oids.len() >= 2 {
+            test_prefix = Some(prefix.clone());
+            matching_oids = oids.clone();
             break;
         }
     }
 
-    if !found_ambiguous {
-        // If we don't have ambiguity, the test scenario isn't applicable
-        // This is fine - ambiguous OIDs are very rare in practice with SHA-1
-        println!("Note: Could not create ambiguous OID scenario in this test run");
-        println!("This is expected and the test is skipped");
+    // If we found colliding prefixes, test the error message
+    if let Some(prefix) = test_prefix {
+        eprintln!(
+            "Found {} commits with prefix '{}'",
+            matching_oids.len(),
+            prefix
+        );
+
+        let output = run_bit_command(
+            repository_dir.path(),
+            &["branch", "create", "test-branch", &prefix],
+        )
+        .assert()
+        .failure();
+
+        let stderr = String::from_utf8(output.get_output().stderr.clone())?;
+
+        eprintln!("Error output:\n{}", stderr);
+
+        // Verify the error message format matches git's format
+        assert!(
+            stderr.contains(&format!("short SHA1 {} is ambiguous", prefix)),
+            "Expected 'short SHA1 {} is ambiguous' in error, got: {}",
+            prefix,
+            stderr
+        );
+        assert!(
+            stderr.contains("hint: The candidates are:"),
+            "Expected 'hint: The candidates are:' in error, got: {}",
+            stderr
+        );
+
+        // Verify all matching commits are listed with their short OIDs
+        for oid in &matching_oids {
+            let short_oid = &oid[..7];
+            assert!(
+                stderr.contains(short_oid),
+                "Expected commit {} to be listed in candidates, got: {}",
+                short_oid,
+                stderr
+            );
+            // Verify each candidate is labeled as "commit"
+            assert!(
+                stderr.contains(&format!("hint:   {} commit", short_oid)),
+                "Expected 'hint:   {} commit' in error, got: {}",
+                short_oid,
+                stderr
+            );
+        }
+    } else {
+        eprintln!(
+            "Failed to generate commits with colliding 4-character prefixes in 500 attempts... Test inconclusive."
+        );
     }
 
     Ok(())
@@ -187,7 +264,6 @@ fn create_branch_from_oid_prefix_too_short_fails(
 
     // Should fail because it's treated as an invalid branch name or unknown revision
     let stderr = String::from_utf8(output.get_output().stderr.clone())?;
-    println!("Actual stderr for too short prefix: {}", stderr);
     // The error could be about invalid branch name or unknown revision
     // Since 3 chars is too short, it should be treated as a branch name and fail validation
     assert!(

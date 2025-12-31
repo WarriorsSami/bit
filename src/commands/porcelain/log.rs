@@ -1,5 +1,6 @@
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::branch_name::SymRefName;
+use crate::artifacts::diff::diff_target::DiffTarget;
 use crate::artifacts::objects::commit::Commit;
 use crate::artifacts::objects::object::Object;
 use crate::{CommitDecoration, CommitDisplayFormat};
@@ -29,7 +30,7 @@ impl Repository {
                 })?;
 
             // Display the commit in medium format
-            self.display_commit(&commit, opts)?;
+            self.show_commit(&commit, opts)?;
             writeln!(self.writer())?;
 
             // Move to the parent commit for the next iteration
@@ -40,19 +41,48 @@ impl Repository {
     }
 
     // TODO: define a RepositoryWriter trait to abstract over the writer using trait objects
-    pub fn display_commit(&self, commit: &Commit, opts: &LogOptions) -> anyhow::Result<()> {
+    pub fn show_commit(&self, commit: &Commit, opts: &LogOptions) -> anyhow::Result<()> {
         if opts.oneline {
             self.show_commit_oneline(commit, true, CommitDecoration::Short)?;
+        } else {
+            match opts.format {
+                CommitDisplayFormat::Medium => {
+                    self.show_commit_medium(commit, opts.abbrev_commit, opts.decorate)?;
+                }
+                CommitDisplayFormat::OneLine => {
+                    self.show_commit_oneline(commit, opts.abbrev_commit, opts.decorate)?;
+                }
+            }
+        }
+
+        self.show_commit_patch(commit, opts.patch)?;
+
+        Ok(())
+    }
+
+    fn show_commit_patch(&self, commit: &Commit, patch: bool) -> anyhow::Result<()> {
+        if !patch {
             return Ok(());
         }
 
-        match opts.format {
-            CommitDisplayFormat::Medium => {
-                self.show_commit_medium(commit, opts.abbrev_commit, opts.decorate)?;
-            }
-            CommitDisplayFormat::OneLine => {
-                self.show_commit_oneline(commit, opts.abbrev_commit, opts.decorate)?;
-            }
+        self.print_commit_diff(commit)?;
+
+        Ok(())
+    }
+
+    fn print_commit_diff(&self, commit: &Commit) -> anyhow::Result<()> {
+        let parent_oid = commit.parent();
+        let commit_oid = commit.object_id()?;
+
+        let tree_diff = self.database().tree_diff(parent_oid, Some(&commit_oid))?;
+        let changeset = tree_diff.changes();
+
+        for path in changeset.keys() {
+            let (old_entry, new_entry) = tree_diff.get_entries(path);
+            self.print_diff(
+                &mut DiffTarget::from_entry(path, old_entry, self.database())?,
+                &mut DiffTarget::from_entry(path, new_entry, self.database())?,
+            )?;
         }
 
         Ok(())

@@ -1,6 +1,7 @@
 use crate::areas::database::Database;
 use crate::areas::index::Index;
 use crate::areas::workspace::Workspace;
+use crate::artifacts::database::database_entry::DatabaseEntry;
 use crate::artifacts::objects::object::Object;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::status::status_info::{FileStatSet, HeadTree};
@@ -88,6 +89,25 @@ impl<'d> DiffTarget<'d> {
             mode: Some(mode),
             data: blob.content().lines().map(|s| s.to_string()).collect(),
         })
+    }
+
+    pub fn from_entry(
+        file: &Path,
+        entry: Option<&'d DatabaseEntry>,
+        database: &'d Database,
+    ) -> anyhow::Result<Self> {
+        if let Some(entry) = entry
+            && let Some(blob) = database.parse_object_as_blob(&entry.oid)?
+        {
+            Ok(Self {
+                file: file.to_path_buf(),
+                oid: entry.oid.clone(),
+                mode: Some(entry.mode.as_str()),
+                data: blob.content().lines().map(|s| s.to_string()).collect(),
+            })
+        } else {
+            Self::from_nothing(file)
+        }
     }
 
     pub fn from_nothing(file: &Path) -> anyhow::Result<Self> {
