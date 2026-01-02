@@ -30,8 +30,8 @@ impl Repository {
             .unwrap_or(HEAD_REF_NAME.parse()?);
         let start_revision = Revision::try_parse(start_revision.as_str())?;
 
-        let rev_list = RevList::new(self, start_revision);
-        for commit in rev_list.into_iter()? {
+        let rev_list = RevList::new(self, start_revision)?;
+        for commit in rev_list.into_iter() {
             // Display the commit in medium format
             self.show_commit(&commit, opts)?;
             writeln!(self.writer())?;
