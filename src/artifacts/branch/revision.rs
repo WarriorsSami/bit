@@ -40,7 +40,7 @@ use anyhow::Context;
 /// let rev = RevisionContext::parse("main~3")?;
 /// let rev = RevisionContext::parse("abc123~2")?;
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Revision {
     /// A reference to a branch, symbolic ref, or potentially an OID (resolved during resolution phase)
     Ref(BranchName),
@@ -59,10 +59,7 @@ impl Revision {
                 // Try to resolve as a ref first
                 match repository.refs().read_ref(branch_name.clone()) {
                     Ok(Some(oid)) => Ok(Some(oid)),
-                    Ok(None) => {
-                        // Symbolic ref - not supported yet
-                        Err(anyhow::anyhow!("symbolic refs are not yet supported"))
-                    }
+                    Ok(None) => Ok(None),
                     Err(_) => {
                         // Ref doesn't exist - try OID if it looks like one
                         if Self::looks_like_oid(name_str) {

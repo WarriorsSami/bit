@@ -4,5 +4,6 @@ pub mod core;
 pub mod database;
 pub mod diff;
 pub mod index;
+pub mod log;
 pub mod objects;
 pub mod status;

@@ -1,6 +1,9 @@
+use crate::areas::refs::HEAD_REF_NAME;
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::branch_name::SymRefName;
+use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::diff::diff_target::DiffTarget;
+use crate::artifacts::log::rev_list::RevList;
 use crate::artifacts::objects::commit::Commit;
 use crate::artifacts::objects::object::Object;
 use crate::{CommitDecoration, CommitDisplayFormat};
@@ -8,6 +11,7 @@ use colored::Colorize;
 
 #[derive(Debug, Clone)]
 pub struct LogOptions {
+    pub start_revision: Option<String>,
     pub oneline: bool,
     pub abbrev_commit: bool,
     pub format: CommitDisplayFormat,
@@ -20,22 +24,17 @@ impl Repository {
         self.set_reverse_refs(self.refs().reverse_refs()?);
         self.set_current_ref(self.refs().current_ref(None)?);
 
-        let mut curr_commit_oid = self.refs().read_head()?;
+        let start_revision = opts
+            .start_revision
+            .clone()
+            .unwrap_or(HEAD_REF_NAME.parse()?);
+        let start_revision = Revision::try_parse(start_revision.as_str())?;
 
-        while let Some(commit_oid) = curr_commit_oid {
-            let commit = self
-                .database()
-                .parse_object_as_commit(&commit_oid)?
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Commit object not found: {}", commit_oid.as_ref())
-                })?;
-
+        let rev_list = RevList::new(self, start_revision);
+        for commit in rev_list.into_iter()? {
             // Display the commit in medium format
             self.show_commit(&commit, opts)?;
             writeln!(self.writer())?;
-
-            // Move to the parent commit for the next iteration
-            curr_commit_oid = commit.parent().cloned();
         }
 
         Ok(())

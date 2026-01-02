@@ -161,6 +161,11 @@ enum Commands {
         long_about = "This command shows the commit logs of the repository."
     )]
     Log {
+        #[arg(
+            index = 1,
+            help = "The starting revision to show logs from (optional, defaults to HEAD)"
+        )]
+        start_revision: Option<String>,
         #[arg(long, help = "Show each commit on a single line")]
         oneline: bool,
         #[arg(long, help = "Show abbreviated commit hashes")]
@@ -345,6 +350,7 @@ async fn run() -> Result<()> {
             repository.checkout(target_revision.as_str()).await?
         }
         Commands::Log {
+            start_revision,
             oneline,
             abbrev_commit,
             format,
@@ -362,6 +368,7 @@ async fn run() -> Result<()> {
             )?;
 
             repository.log(&LogOptions {
+                start_revision: start_revision.clone(),
                 oneline: *oneline,
                 abbrev_commit: *abbrev_commit,
                 format: (*format).unwrap_or_default(),

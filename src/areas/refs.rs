@@ -15,7 +15,7 @@ pub struct Refs {
 }
 
 const SYMREF_REGEX: &str = r"^ref: (.+)$";
-const HEAD_REF_NAME: &str = "HEAD";
+pub const HEAD_REF_NAME: &str = "HEAD";
 
 #[derive(Debug, Clone)]
 enum SymRefOrOid {
