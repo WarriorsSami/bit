@@ -168,6 +168,16 @@ pub fn bit_commit(dir: &Path, message: &str) -> Command {
     cmd
 }
 
+pub fn bit_commit_with_timestamp(dir: &Path, message: &str, timestamp: &str) -> Command {
+    let mut cmd = run_bit_command(dir, &["commit", "-m", message]);
+    cmd.envs(vec![
+        ("GIT_AUTHOR_NAME", &"fake_user".to_string()),
+        ("GIT_AUTHOR_EMAIL", &"fake_email@email.com".to_string()),
+        ("GIT_AUTHOR_DATE", &timestamp.to_string()),
+    ]);
+    cmd
+}
+
 /// Get the parent commit ID of a given commit by using git cat-file
 pub fn get_parent_commit_id(
     dir: &Path,
@@ -213,6 +223,20 @@ pub fn get_head_commit_sha(dir: &Path) -> Result<String, Box<dyn std::error::Err
     } else {
         Ok(head_content.trim().to_string())
     }
+}
+
+/// Get the commit SHA of a branch reference
+pub fn get_branch_commit_sha(
+    dir: &Path,
+    branch_name: &str,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let ref_file = dir
+        .join(".git")
+        .join("refs")
+        .join("heads")
+        .join(branch_name);
+    let commit_sha = std::fs::read_to_string(ref_file)?;
+    Ok(commit_sha.trim().to_string())
 }
 
 #[fixture]

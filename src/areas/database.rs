@@ -16,6 +16,8 @@ pub struct Database {
     path: Box<Path>,
 }
 
+// TODO: implement packfiles for better performance and storage efficiency
+// TODO: refactor to use async fs operations
 impl Database {
     pub fn new(path: Box<Path>) -> Self {
         Database { path }

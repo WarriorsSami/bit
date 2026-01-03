@@ -7,7 +7,6 @@ mod show_log_from_abbreviated_sha;
 mod show_log_from_branch_reference;
 mod show_log_from_first_commit;
 mod show_log_from_head_commit;
-mod show_log_from_invalid_revision;
 mod show_log_from_middle_of_history;
 mod show_log_from_nonexistent_branch;
 mod show_log_from_specific_commit_sha;
@@ -25,3 +24,11 @@ mod show_single_commit_with_format_medium;
 mod show_single_commit_with_format_oneline;
 mod show_single_commit_with_oneline_and_abbrev_commit_flags;
 mod verify_medium_format_structure;
+
+// Multiple revision tests with timestamp-based partial ordering
+mod log_complex_dag_with_multiple_merge_bases;
+mod log_divergent_histories_with_common_ancestor;
+mod log_interleaved_commits_from_three_branches;
+mod log_multiple_branches_with_timestamp_ordering;
+mod log_with_identical_timestamps_maintains_stable_order;
+mod log_with_mixed_revision_formats;

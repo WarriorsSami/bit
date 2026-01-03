@@ -40,7 +40,7 @@ use anyhow::Context;
 /// let rev = RevisionContext::parse("main~3")?;
 /// let rev = RevisionContext::parse("abc123~2")?;
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub enum Revision {
     /// A reference to a branch, symbolic ref, or potentially an OID (resolved during resolution phase)
     Ref(BranchName),

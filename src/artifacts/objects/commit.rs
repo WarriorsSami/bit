@@ -6,7 +6,7 @@ use anyhow::Context;
 use bytes::Bytes;
 use std::io::{BufRead, Write};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Author {
     name: String,
     email: String,
@@ -68,6 +68,10 @@ impl Author {
             .format("%a %b %-d %H:%M:%S %Y %z")
             .to_string()
     }
+
+    pub fn timestamp(&self) -> chrono::DateTime<chrono::FixedOffset> {
+        self.timestamp
+    }
 }
 
 impl TryFrom<&str> for Author {
@@ -114,7 +118,7 @@ impl TryFrom<&str> for Author {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Commit {
     parent: Option<ObjectId>,
     tree_oid: ObjectId,
@@ -157,6 +161,10 @@ impl Commit {
 
     pub fn author(&self) -> &Author {
         &self.author
+    }
+
+    pub fn timestamp(&self) -> chrono::DateTime<chrono::FixedOffset> {
+        self.author.timestamp()
     }
 }
 

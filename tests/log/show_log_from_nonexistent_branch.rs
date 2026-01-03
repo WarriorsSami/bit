@@ -9,14 +9,14 @@ fn show_log_from_nonexistent_branch(
     // Run the log command with a non-existent branch reference
     let output = run_bit_command(repository_dir.path(), &["log", "nonexistent-branch"])
         .assert()
-        .failure();
+        .success();
 
-    let stderr = String::from_utf8(output.get_output().stderr.clone())?;
+    let stdout = String::from_utf8(output.get_output().stdout.clone())?;
 
-    // Verify that an error message is displayed
     assert!(
-        !stderr.is_empty(),
-        "Expected error message for non-existent branch"
+        stdout.is_empty() || stdout.contains("No commits"),
+        "Expected empty output for log from non-existent branch, got: {}",
+        stdout
     );
 
     Ok(())

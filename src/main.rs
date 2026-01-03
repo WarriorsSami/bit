@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
 use crate::artifacts::core::PagerWriter;
-use crate::commands::porcelain::log::LogOptions;
+use crate::commands::porcelain::log::parse_log_target;
+use crate::commands::porcelain::log::{LogOptions, LogTarget};
 use anyhow::Result;
 use areas::repository::Repository;
 use clap::{Parser, Subcommand, ValueEnum};
@@ -163,9 +164,11 @@ enum Commands {
     Log {
         #[arg(
             index = 1,
-            help = "The starting revision to show logs from (optional, defaults to HEAD)"
+            value_parser = parse_log_target,
+            help = "The starting revision(s) to show logs from. \
+            They can be revisions, range expressions or excluded revisions."
         )]
-        start_revision: Option<String>,
+        targets: Option<Vec<LogTarget>>,
         #[arg(long, help = "Show each commit on a single line")]
         oneline: bool,
         #[arg(long, help = "Show abbreviated commit hashes")]
@@ -350,7 +353,7 @@ async fn run() -> Result<()> {
             repository.checkout(target_revision.as_str()).await?
         }
         Commands::Log {
-            start_revision,
+            targets,
             oneline,
             abbrev_commit,
             format,
@@ -368,7 +371,7 @@ async fn run() -> Result<()> {
             )?;
 
             repository.log(&LogOptions {
-                start_revision: start_revision.clone(),
+                targets: targets.clone(),
                 oneline: *oneline,
                 abbrev_commit: *abbrev_commit,
                 format: (*format).unwrap_or_default(),

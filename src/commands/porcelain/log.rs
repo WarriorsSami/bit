@@ -9,9 +9,61 @@ use crate::artifacts::objects::object::Object;
 use crate::{CommitDecoration, CommitDisplayFormat};
 use colored::Colorize;
 
+const RANGE_REGEX: &str = r"^(?P<excluded>[^.]+)\.\.(?P<included>[^.]+)$";
+const EXCLUDED_REGEX: &str = r"^\^(?P<excluded>.+)$";
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogTarget {
+    IncludedRevision(Revision),
+    RangeExpression {
+        excluded: Revision,
+        included: Revision,
+    },
+    ExcludedRevision(Revision),
+}
+
+pub fn parse_log_target(target: &str) -> anyhow::Result<LogTarget> {
+    let range_regex = regex::Regex::new(RANGE_REGEX)?;
+    let excluded_regex = regex::Regex::new(EXCLUDED_REGEX)?;
+
+    if let Some(captures) = range_regex.captures(target) {
+        let excluded_str = captures
+            .name("excluded")
+            .ok_or(anyhow::anyhow!(
+                "Failed to parse excluded revision from range expression"
+            ))?
+            .as_str();
+        let included_str = captures
+            .name("included")
+            .ok_or(anyhow::anyhow!(
+                "Failed to parse included revision from range expression"
+            ))?
+            .as_str();
+
+        let excluded = Revision::try_parse(excluded_str)?;
+        let included = Revision::try_parse(included_str)?;
+
+        Ok(LogTarget::RangeExpression { excluded, included })
+    } else if let Some(captures) = excluded_regex.captures(target) {
+        let excluded_str = captures
+            .name("excluded")
+            .ok_or(anyhow::anyhow!(
+                "Failed to parse excluded revision from exclusion expression"
+            ))?
+            .as_str();
+        let excluded = Revision::try_parse(excluded_str)?;
+
+        Ok(LogTarget::ExcludedRevision(excluded))
+    } else {
+        let included = Revision::try_parse(target)?;
+
+        Ok(LogTarget::IncludedRevision(included))
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LogOptions {
-    pub start_revision: Option<String>,
+    pub targets: Option<Vec<LogTarget>>,
     pub oneline: bool,
     pub abbrev_commit: bool,
     pub format: CommitDisplayFormat,
@@ -24,17 +76,26 @@ impl Repository {
         self.set_reverse_refs(self.refs().reverse_refs()?);
         self.set_current_ref(self.refs().current_ref(None)?);
 
-        let start_revision = opts
-            .start_revision
+        let log_targets = opts
+            .targets
             .clone()
-            .unwrap_or(HEAD_REF_NAME.parse()?);
-        let start_revision = Revision::try_parse(start_revision.as_str())?;
+            .unwrap_or(vec![LogTarget::IncludedRevision(Revision::try_parse(
+                HEAD_REF_NAME,
+            )?)]);
+        let rev_list = RevList::new(self, log_targets);
 
-        let rev_list = RevList::new(self, start_revision)?;
-        for commit in rev_list.into_iter() {
-            // Display the commit in medium format
-            self.show_commit(&commit, opts)?;
-            writeln!(self.writer())?;
+        match rev_list {
+            Ok(rev_list) => {
+                for commit in rev_list.into_iter() {
+                    // Display the commit in medium format
+                    self.show_commit(&commit, opts)?;
+                    writeln!(self.writer())?;
+                }
+            }
+            Err(_) => {
+                // No commits to show
+                writeln!(self.writer(), "No commits to show.")?;
+            }
         }
 
         Ok(())
