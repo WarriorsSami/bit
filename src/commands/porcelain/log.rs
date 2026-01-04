@@ -9,7 +9,7 @@ use crate::artifacts::objects::object::Object;
 use crate::{CommitDecoration, CommitDisplayFormat};
 use colored::Colorize;
 
-const RANGE_REGEX: &str = r"^(?P<excluded>[^.]+)\.\.(?P<included>[^.]+)$";
+const RANGE_REGEX: &str = r"^(?P<excluded>.*)\.\.(?P<included>.*)$";
 const EXCLUDED_REGEX: &str = r"^\^(?P<excluded>.+)$";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +39,18 @@ pub fn parse_log_target(target: &str) -> anyhow::Result<LogTarget> {
                 "Failed to parse included revision from range expression"
             ))?
             .as_str();
+
+        // If any of the revisions are empty, default to HEAD
+        let excluded_str = if excluded_str.is_empty() {
+            HEAD_REF_NAME
+        } else {
+            excluded_str
+        };
+        let included_str = if included_str.is_empty() {
+            HEAD_REF_NAME
+        } else {
+            included_str
+        };
 
         let excluded = Revision::try_parse(excluded_str)?;
         let included = Revision::try_parse(included_str)?;

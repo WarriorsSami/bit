@@ -32,3 +32,16 @@ mod log_interleaved_commits_from_three_branches;
 mod log_multiple_branches_with_timestamp_ordering;
 mod log_with_identical_timestamps_maintains_stable_order;
 mod log_with_mixed_revision_formats;
+
+// Range expression tests (feature..master)
+mod log_range_expression_excludes_commits;
+mod log_range_expression_with_default_excluded;
+mod log_range_expression_with_default_head;
+
+// Excluded expression tests (^feature master)
+mod log_excluded_expression_defaults_to_head;
+mod log_excluded_expression_with_included_revision;
+mod log_multiple_excluded_revisions;
+
+// Combined range and excluded expression tests
+mod log_combined_range_and_excluded_expressions;
