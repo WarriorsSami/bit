@@ -74,7 +74,6 @@ fn log_filter_commits_by_single_file(
     .success();
 
     let stdout = String::from_utf8(output.get_output().stdout.clone())?;
-    println!("Filtered log output:\n{}", stdout);
 
     // Should include commits that modified file1.txt
     assert!(
