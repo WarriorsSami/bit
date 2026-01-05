@@ -1,5 +1,6 @@
 use crate::areas::database::Database;
 use crate::artifacts::database::database_entry::DatabaseEntry;
+use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::object::ObjectBox;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::tree::Tree;
@@ -91,7 +92,7 @@ impl TreeChangeType {
 pub type ChangeSet = BTreeMap<PathBuf, TreeChangeType>;
 pub type TreeEntryMap = BTreeMap<String, DatabaseEntry>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct TreeDiff<'r> {
     database: &'r Database,
     change_set: ChangeSet,
@@ -121,7 +122,7 @@ impl<'r> TreeDiff<'r> {
         &mut self,
         old: Option<&ObjectId>,
         new: Option<&ObjectId>,
-        prefix: &Path,
+        path_filter: PathFilter,
     ) -> anyhow::Result<()> {
         if old == new {
             return Ok(());
@@ -130,8 +131,8 @@ impl<'r> TreeDiff<'r> {
         let old_tree_entries = self.inflate_oid_to_tree_entries(old)?;
         let new_tree_entries = self.inflate_oid_to_tree_entries(new)?;
 
-        self.detect_deletions(&old_tree_entries, &new_tree_entries, prefix)?;
-        self.detect_additions(&old_tree_entries, &new_tree_entries, prefix)?;
+        self.detect_deletions(&old_tree_entries, &new_tree_entries, path_filter.clone())?;
+        self.detect_additions(&old_tree_entries, &new_tree_entries, path_filter.clone())?;
 
         Ok(())
     }
@@ -164,10 +165,11 @@ impl<'r> TreeDiff<'r> {
         &mut self,
         old: &TreeEntryMap,
         new: &TreeEntryMap,
-        prefix: &Path,
+        path_filter: PathFilter,
     ) -> anyhow::Result<()> {
-        for (name, entry) in old {
-            let path = prefix.join(name);
+        for (name, entry) in path_filter.filter_matching_entries(old.iter()) {
+            let subpath_filter = path_filter.clone().into_subpath_filter(name);
+            let path = subpath_filter.path().to_path_buf();
             let other = new.get(name);
 
             if let Some(other) = other
@@ -189,7 +191,7 @@ impl<'r> TreeDiff<'r> {
                 None
             };
 
-            self.compare_oids(tree_a_oid, tree_b_oid, &path)?;
+            self.compare_oids(tree_a_oid, tree_b_oid, subpath_filter)?;
 
             let blob_a = if entry.is_tree() {
                 None
@@ -214,10 +216,11 @@ impl<'r> TreeDiff<'r> {
         &mut self,
         old: &TreeEntryMap,
         new: &TreeEntryMap,
-        prefix: &Path,
+        path_filter: PathFilter,
     ) -> anyhow::Result<()> {
-        for (name, entry) in new {
-            let path = prefix.join(name);
+        for (name, entry) in path_filter.filter_matching_entries(new.iter()) {
+            let subpath_filter = path_filter.clone().into_subpath_filter(name);
+            let path = subpath_filter.path().to_path_buf();
             let other = old.get(name);
 
             if other.is_some() {
@@ -225,7 +228,7 @@ impl<'r> TreeDiff<'r> {
             }
 
             if entry.is_tree() {
-                self.compare_oids(None, Some(&entry.oid), &path)?;
+                self.compare_oids(None, Some(&entry.oid), subpath_filter)?;
             } else {
                 // This is a newly added blob file
                 self.change_set

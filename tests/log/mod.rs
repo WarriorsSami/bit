@@ -49,3 +49,11 @@ mod log_combined_range_and_excluded_expressions;
 // Edge case tests
 mod log_interesting_commits_reachable_from_uninteresting;
 mod log_only_excluded_revisions_defaults_to_head;
+
+// File filtering tests
+mod log_filter_by_file_with_no_matching_commits;
+mod log_filter_by_file_with_revision_range;
+mod log_filter_by_nested_file_path;
+mod log_filter_commits_by_directory;
+mod log_filter_commits_by_multiple_files;
+mod log_filter_commits_by_single_file;

@@ -5,6 +5,7 @@ use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::diff::diff_algorithm::{DiffAlgorithm, Hunk, MyersDiff};
 use crate::artifacts::diff::diff_target::DiffTarget;
 use crate::artifacts::diff::tree_diff::DiffFilter;
+use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::status::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
 use crate::artifacts::status::status_info::StatusInfo;
@@ -66,9 +67,9 @@ impl Repository {
         name_status: bool,
         diff_filter: Option<DiffFilter>,
     ) -> anyhow::Result<()> {
-        let tree_diff = self
-            .database()
-            .tree_diff(Some(&commit_a), Some(&commit_b))?;
+        let tree_diff =
+            self.database()
+                .tree_diff(Some(&commit_a), Some(&commit_b), PathFilter::empty())?;
         let changeset = tree_diff.changes();
 
         for (path, change_type) in changeset {

@@ -7,7 +7,7 @@ use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::status::status_info::Status;
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -27,8 +27,8 @@ pub struct Repository {
 }
 
 impl Repository {
-    pub fn new(path: &str, writer: Box<dyn std::io::Write>) -> anyhow::Result<Self> {
-        let path = Path::new(path).canonicalize()?;
+    pub fn new(path: PathBuf, writer: Box<dyn std::io::Write>) -> anyhow::Result<Self> {
+        let path = path.canonicalize()?;
 
         if !path.exists() {
             std::fs::create_dir_all(&path)?;

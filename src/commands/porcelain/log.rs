@@ -3,17 +3,20 @@ use crate::areas::repository::Repository;
 use crate::artifacts::branch::branch_name::SymRefName;
 use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::diff::diff_target::DiffTarget;
-use crate::artifacts::log::rev_list::RevList;
+use crate::artifacts::diff::tree_diff::TreeDiff;
+use crate::artifacts::log::path_filter::PathFilter;
+use crate::artifacts::log::rev_list::{CommitsDiffs, RevList};
 use crate::artifacts::objects::commit::Commit;
 use crate::artifacts::objects::object::Object;
 use crate::{CommitDecoration, CommitDisplayFormat};
 use colored::Colorize;
+use std::path::PathBuf;
 
 const RANGE_REGEX: &str = r"^(?P<excluded>.*)\.\.(?P<included>.*)$";
 const EXCLUDED_REGEX: &str = r"^\^(?P<excluded>.+)$";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum LogTarget {
+pub enum LogRevisionTargets {
     IncludedRevision(Revision),
     RangeExpression {
         excluded: Revision,
@@ -22,7 +25,7 @@ pub enum LogTarget {
     ExcludedRevision(Revision),
 }
 
-pub fn parse_log_target(target: &str) -> anyhow::Result<LogTarget> {
+pub fn parse_log_target(target: &str) -> anyhow::Result<LogRevisionTargets> {
     let range_regex = regex::Regex::new(RANGE_REGEX)?;
     let excluded_regex = regex::Regex::new(EXCLUDED_REGEX)?;
 
@@ -55,7 +58,7 @@ pub fn parse_log_target(target: &str) -> anyhow::Result<LogTarget> {
         let excluded = Revision::try_parse(excluded_str)?;
         let included = Revision::try_parse(included_str)?;
 
-        Ok(LogTarget::RangeExpression { excluded, included })
+        Ok(LogRevisionTargets::RangeExpression { excluded, included })
     } else if let Some(captures) = excluded_regex.captures(target) {
         let excluded_str = captures
             .name("excluded")
@@ -65,17 +68,20 @@ pub fn parse_log_target(target: &str) -> anyhow::Result<LogTarget> {
             .as_str();
         let excluded = Revision::try_parse(excluded_str)?;
 
-        Ok(LogTarget::ExcludedRevision(excluded))
+        Ok(LogRevisionTargets::ExcludedRevision(excluded))
     } else {
         let included = Revision::try_parse(target)?;
 
-        Ok(LogTarget::IncludedRevision(included))
+        Ok(LogRevisionTargets::IncludedRevision(included))
     }
 }
 
+// TODO: use a builder pattern for LogOptions
+// TODO: use &Path instead of PathBuf
 #[derive(Debug, Clone)]
 pub struct LogOptions {
-    pub targets: Option<Vec<LogTarget>>,
+    pub target_revisions: Option<Vec<LogRevisionTargets>>,
+    pub target_files: Option<Vec<PathBuf>>,
     pub oneline: bool,
     pub abbrev_commit: bool,
     pub format: CommitDisplayFormat,
@@ -88,19 +94,24 @@ impl Repository {
         self.set_reverse_refs(self.refs().reverse_refs()?);
         self.set_current_ref(self.refs().current_ref(None)?);
 
-        let log_targets = opts
-            .targets
-            .clone()
-            .unwrap_or(vec![LogTarget::IncludedRevision(Revision::try_parse(
-                HEAD_REF_NAME,
-            )?)]);
-        let rev_list = RevList::new(self, log_targets);
+        let target_revisions =
+            opts.target_revisions
+                .clone()
+                .unwrap_or(vec![LogRevisionTargets::IncludedRevision(
+                    Revision::try_parse(HEAD_REF_NAME)?,
+                )]);
+        let rev_list = RevList::new(self, target_revisions, opts.target_files.clone());
 
         match rev_list {
             Ok(rev_list) => {
+                let commits_diffs = if opts.target_files.is_some() {
+                    Some(rev_list.commit_diffs().clone())
+                } else {
+                    None
+                };
                 for commit in rev_list.into_iter() {
                     // Display the commit in medium format
-                    self.show_commit(&commit, opts)?;
+                    self.show_commit(&commit, commits_diffs.as_ref(), opts)?;
                     writeln!(self.writer())?;
                 }
             }
@@ -114,7 +125,12 @@ impl Repository {
     }
 
     // TODO: define a RepositoryWriter trait to abstract over the writer using trait objects
-    pub fn show_commit(&self, commit: &Commit, opts: &LogOptions) -> anyhow::Result<()> {
+    pub fn show_commit(
+        &self,
+        commit: &Commit,
+        commits_diffs: Option<&CommitsDiffs>,
+        opts: &LogOptions,
+    ) -> anyhow::Result<()> {
         if opts.oneline {
             self.show_commit_oneline(commit, true, CommitDecoration::Short)?;
         } else {
@@ -128,26 +144,44 @@ impl Repository {
             }
         }
 
-        self.show_commit_patch(commit, opts.patch)?;
+        self.show_commit_patch(commit, commits_diffs, opts.patch)?;
 
         Ok(())
     }
 
-    fn show_commit_patch(&self, commit: &Commit, patch: bool) -> anyhow::Result<()> {
+    fn show_commit_patch(
+        &self,
+        commit: &Commit,
+        commits_diffs: Option<&CommitsDiffs>,
+        patch: bool,
+    ) -> anyhow::Result<()> {
         if !patch {
             return Ok(());
         }
 
-        self.print_commit_diff(commit)?;
+        self.print_commit_diff(commit, commits_diffs)?;
 
         Ok(())
     }
 
-    fn print_commit_diff(&self, commit: &Commit) -> anyhow::Result<()> {
+    fn print_commit_diff(
+        &self,
+        commit: &Commit,
+        commits_diffs: Option<&CommitsDiffs>,
+    ) -> anyhow::Result<()> {
         let parent_oid = commit.parent();
         let commit_oid = commit.object_id()?;
 
-        let tree_diff = self.database().tree_diff(parent_oid, Some(&commit_oid))?;
+        // Get the tree diff between the parent and the commit from the revision list cache if available
+        let tree_diff = if let Some(commits_diffs) = commits_diffs {
+            commits_diffs
+                .get(&(parent_oid.cloned(), Some(commit_oid)))
+                .cloned()
+                .unwrap_or(TreeDiff::new(self.database()))
+        } else {
+            self.database()
+                .tree_diff(parent_oid, Some(&commit_oid), PathFilter::empty())?
+        };
         let changeset = tree_diff.changes();
 
         for path in changeset.keys() {

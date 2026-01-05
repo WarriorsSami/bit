@@ -2,6 +2,7 @@ use crate::areas::repository::Repository;
 use crate::artifacts::branch::branch_name::SymRefName;
 use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::checkout::migration::Migration;
+use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::object_id::ObjectId;
 
 const DETACHMENT_NOTICE: &str = r#"
@@ -33,9 +34,11 @@ impl Repository {
 
         index.rehydrate()?;
 
-        let tree_diff = self
-            .database()
-            .tree_diff(Some(&current_oid), Some(&target_oid))?;
+        let tree_diff = self.database().tree_diff(
+            Some(&current_oid),
+            Some(&target_oid),
+            PathFilter::empty(),
+        )?;
 
         let mut migration = Migration::new(self, &mut index, tree_diff);
         migration.apply_changes()?;

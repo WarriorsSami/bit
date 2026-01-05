@@ -1,12 +1,15 @@
 use crate::areas::refs::HEAD_REF_NAME;
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::revision::Revision;
+use crate::artifacts::diff::tree_diff::TreeDiff;
+use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::commit::Commit;
 use crate::artifacts::objects::object::Object;
 use crate::artifacts::objects::object_id::ObjectId;
-use crate::commands::porcelain::log::LogTarget;
+use crate::commands::porcelain::log::LogRevisionTargets;
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::path::PathBuf;
 
 /// A flag indicating the state of a commit during log traversal.
 ///
@@ -23,6 +26,8 @@ enum LogTraversalCommitFlag {
     Added,
     /// The commit is uninteresting and should be skipped as it's reachable from an excluded revision.
     Uninteresting,
+    /// The commit has the same tree as its parent (used for filtering).
+    TreeSame,
 }
 
 /// Wrapper for ObjectId in the priority queue that orders by commit timestamp.
@@ -61,6 +66,8 @@ impl PartialOrd for CommitQueueEntry {
     }
 }
 
+pub type CommitsDiffs<'r> = HashMap<(Option<ObjectId>, Option<ObjectId>), TreeDiff<'r>>;
+
 pub struct RevList<'r> {
     repository: &'r Repository,
     commits_cache: HashMap<ObjectId, Commit>,
@@ -68,10 +75,17 @@ pub struct RevList<'r> {
     commits_pqueue: BinaryHeap<CommitQueueEntry>,
     is_limited: bool,
     commits_output_list: Vec<Commit>,
+    interesting_files: Vec<PathBuf>,
+    commits_diffs: CommitsDiffs<'r>,
+    path_filter: PathFilter,
 }
 
 impl<'r> RevList<'r> {
-    pub fn new(repository: &'r Repository, mut targets: Vec<LogTarget>) -> anyhow::Result<Self> {
+    pub fn new(
+        repository: &'r Repository,
+        mut target_revisions: Vec<LogRevisionTargets>,
+        target_files: Option<Vec<PathBuf>>,
+    ) -> anyhow::Result<Self> {
         let mut rev_list = Self {
             repository,
             commits_cache: HashMap::new(),
@@ -79,22 +93,43 @@ impl<'r> RevList<'r> {
             commits_pqueue: BinaryHeap::new(),
             is_limited: false,
             commits_output_list: Vec::new(),
+            interesting_files: Vec::new(),
+            commits_diffs: HashMap::new(),
+            path_filter: PathFilter::empty(),
         };
 
+        let interesting_files = if let Some(files) = target_files {
+            let mut interesting_files = vec![];
+            for file in files {
+                let _file_stat = rev_list.repository.workspace().stat_file(file.as_ref())?;
+
+                interesting_files.push(file);
+            }
+
+            rev_list.is_limited = true;
+
+            interesting_files
+        } else {
+            vec![]
+        };
+
+        rev_list.interesting_files = interesting_files.clone();
+        rev_list.path_filter = PathFilter::new(interesting_files);
+
         // Edge case: no targets provided excepting excluded revisions
-        if targets
+        if target_revisions
             .iter()
-            .all(|t| matches!(t, LogTarget::ExcludedRevision(_)))
+            .all(|t| matches!(t, LogRevisionTargets::ExcludedRevision(_)))
         {
             // Default to including HEAD
-            targets.extend(std::iter::once(LogTarget::IncludedRevision(
+            target_revisions.extend(vec![LogRevisionTargets::IncludedRevision(
                 Revision::try_parse(HEAD_REF_NAME)?,
-            )));
+            )]);
         }
 
         // Initialize the priority queue with all starting commits from targets
-        for target in targets {
-            rev_list.handle_log_target(target)?;
+        for target_revision in target_revisions {
+            rev_list.handle_target_revision(target_revision)?;
         }
 
         // Scan the history graph and build the output list only including interesting commits
@@ -107,6 +142,10 @@ impl<'r> RevList<'r> {
 
     pub fn into_iter(self) -> RevListIntoIter<'r> {
         RevListIntoIter { rev_list: self }
+    }
+
+    pub fn commit_diffs(&self) -> &CommitsDiffs<'r> {
+        &self.commits_diffs
     }
 
     fn limit_to_interesting_commits(&mut self) -> anyhow::Result<()> {
@@ -139,6 +178,7 @@ impl<'r> RevList<'r> {
                     if let Ok(entry) = CommitQueueEntry::try_from(commit)
                         && let Some(flags) = self.commits_flags.get(&entry.oid)
                         && !flags.contains(&LogTraversalCommitFlag::Uninteresting)
+                        && !flags.contains(&LogTraversalCommitFlag::TreeSame)
                     {
                         heap.push(entry);
                     }
@@ -177,16 +217,16 @@ impl<'r> RevList<'r> {
         }
     }
 
-    fn handle_log_target(&mut self, target: LogTarget) -> anyhow::Result<()> {
+    fn handle_target_revision(&mut self, target: LogRevisionTargets) -> anyhow::Result<()> {
         match target {
-            LogTarget::IncludedRevision(revision) => {
+            LogRevisionTargets::IncludedRevision(revision) => {
                 self.handle_start_revision(revision, true)?;
             }
-            LogTarget::RangeExpression { excluded, included } => {
+            LogRevisionTargets::RangeExpression { excluded, included } => {
                 self.handle_start_revision(excluded, false)?;
                 self.handle_start_revision(included, true)?;
             }
-            LogTarget::ExcludedRevision(revision) => {
+            LogRevisionTargets::ExcludedRevision(revision) => {
                 self.handle_start_revision(revision, false)?;
             }
         }
@@ -286,21 +326,66 @@ impl<'r> RevList<'r> {
             return Ok(());
         };
 
+        let is_uninteresting = self
+            .commits_flags
+            .get(oid)
+            .is_some_and(|flags| flags.contains(&LogTraversalCommitFlag::Uninteresting));
+
         // Load its parent into the cache if not already present and enqueue the parent if found
         if let Some(parent_oid) = commit.parent() {
             self.load_commit(parent_oid)?;
 
             // Mark parents as uninteresting if this commit is uninteresting
-            if let Some(flags) = self.commits_flags.get(oid)
-                && flags.contains(&LogTraversalCommitFlag::Uninteresting)
-            {
+            if is_uninteresting {
                 self.mark_parents_uninteresting(oid)?;
             }
 
             self.enqueue_commit(parent_oid)?;
         }
 
+        if !is_uninteresting {
+            self.simplify_commit(&commit)?;
+        }
+
         Ok(())
+    }
+
+    fn simplify_commit(&mut self, commit: &Commit) -> anyhow::Result<()> {
+        if self.interesting_files.is_empty() {
+            return Ok(());
+        }
+
+        if self
+            .tree_diff(commit.parent(), Some(&commit.object_id()?))?
+            .changes()
+            .is_empty()
+        {
+            self.commits_flags
+                .entry(commit.object_id()?)
+                .or_default()
+                .insert(LogTraversalCommitFlag::TreeSame);
+        }
+
+        Ok(())
+    }
+
+    fn tree_diff(
+        &mut self,
+        old: Option<&ObjectId>,
+        new: Option<&ObjectId>,
+    ) -> anyhow::Result<TreeDiff<'r>> {
+        let key = (old.cloned(), new.cloned());
+        if let Some(tree_diff) = self.commits_diffs.get(&key) {
+            return Ok(tree_diff.clone());
+        }
+
+        let tree_diff = self
+            .repository
+            .database()
+            .tree_diff(old, new, self.path_filter.clone())?;
+        self.commits_diffs.insert(key, tree_diff.clone());
+
+        Ok(tree_diff)
     }
 }
 

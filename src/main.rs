@@ -2,14 +2,16 @@
 
 use crate::artifacts::core::PagerWriter;
 use crate::commands::porcelain::log::parse_log_target;
-use crate::commands::porcelain::log::{LogOptions, LogTarget};
+use crate::commands::porcelain::log::{LogOptions, LogRevisionTargets};
 use anyhow::Result;
 use areas::repository::Repository;
 use clap::{Parser, Subcommand, ValueEnum};
 use colored::control;
 use is_terminal::IsTerminal;
 use minus::{Pager, page_all};
-// TODO: improve error handling and messages
+use std::path::PathBuf;
+
+// TODO: improve error handling and messages using thiserror
 // TODO: improve test harness using snapbox
 
 mod areas;
@@ -163,12 +165,16 @@ enum Commands {
     )]
     Log {
         #[arg(
-            index = 1,
             value_parser = parse_log_target,
             help = "The starting revision(s) to show logs from. \
             They can be revisions, range expressions or excluded revisions."
         )]
-        targets: Option<Vec<LogTarget>>,
+        target_revisions: Option<Vec<LogRevisionTargets>>,
+        #[arg(
+            last = true,
+            help = "Show logs only for the specified target files (use after --)"
+        )]
+        target_files: Option<Vec<PathBuf>>,
         #[arg(long, help = "Show each commit on a single line")]
         oneline: bool,
         #[arg(long, help = "Show abbreviated commit hashes")]
@@ -250,13 +256,16 @@ async fn run() -> Result<()> {
     let cli = Cli::parse();
     let pager = Pager::new();
 
+    let stdout_writer = Box::new(std::io::stdout());
+    let pager_writer = Box::new(PagerWriter::new(pager.clone()));
+
     match &cli.command {
         Commands::Init { path } => {
             let mut repository = match path {
-                Some(path) => Repository::new(path, Box::new(std::io::stdout()))?,
+                Some(path) => Repository::new(PathBuf::from(path), stdout_writer)?,
                 None => {
                     let pwd = std::env::current_dir()?;
-                    Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?
+                    Repository::new(pwd, stdout_writer)?
                 }
             };
 
@@ -264,36 +273,31 @@ async fn run() -> Result<()> {
         }
         Commands::HashObject { write, file } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(pwd, stdout_writer)?;
 
             repository.hash_object(file, *write)?
         }
         Commands::LsTree { recursive, sha } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(pwd, stdout_writer)?;
 
             repository.ls_tree(sha, *recursive).await?
         }
         Commands::Add { paths } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(pwd, stdout_writer)?;
 
             repository.add(paths).await?
         }
         Commands::Commit { message } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(pwd, stdout_writer)?;
 
             repository.commit(message.as_str()).await?
         }
         Commands::Status { porcelain } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(pwd, stdout_writer)?;
 
             repository.display_status(*porcelain).await?
         }
@@ -306,11 +310,11 @@ async fn run() -> Result<()> {
         } => {
             let pwd = std::env::current_dir()?;
             let mut repository = Repository::new(
-                &pwd.to_string_lossy(),
+                pwd,
                 if use_pager {
-                    Box::new(PagerWriter::new(pager.clone()))
+                    pager_writer
                 } else {
-                    Box::new(std::io::stdout())
+                    stdout_writer
                 },
             )?;
 
@@ -331,11 +335,11 @@ async fn run() -> Result<()> {
         Commands::Branch { action } => {
             let pwd = std::env::current_dir()?;
             let mut repository = Repository::new(
-                &pwd.to_string_lossy(),
+                pwd,
                 if use_pager {
-                    Box::new(PagerWriter::new(pager.clone()))
+                    pager_writer
                 } else {
-                    Box::new(std::io::stdout())
+                    stdout_writer
                 },
             )?;
 
@@ -347,13 +351,13 @@ async fn run() -> Result<()> {
         }
         Commands::Checkout { target_revision } => {
             let pwd = std::env::current_dir()?;
-            let mut repository =
-                Repository::new(&pwd.to_string_lossy(), Box::new(std::io::stdout()))?;
+            let mut repository = Repository::new(pwd, stdout_writer)?;
 
             repository.checkout(target_revision.as_str()).await?
         }
         Commands::Log {
-            targets,
+            target_revisions,
+            target_files,
             oneline,
             abbrev_commit,
             format,
@@ -362,16 +366,17 @@ async fn run() -> Result<()> {
         } => {
             let pwd = std::env::current_dir()?;
             let repository = Repository::new(
-                &pwd.to_string_lossy(),
+                pwd,
                 if use_pager {
-                    Box::new(PagerWriter::new(pager.clone()))
+                    pager_writer
                 } else {
-                    Box::new(std::io::stdout())
+                    stdout_writer
                 },
             )?;
 
             repository.log(&LogOptions {
-                targets: targets.clone(),
+                target_revisions: target_revisions.clone(),
+                target_files: target_files.clone(),
                 oneline: *oneline,
                 abbrev_commit: *abbrev_commit,
                 format: (*format).unwrap_or_default(),
