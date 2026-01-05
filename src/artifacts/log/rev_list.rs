@@ -71,7 +71,7 @@ pub struct RevList<'r> {
 }
 
 impl<'r> RevList<'r> {
-    pub fn new(repository: &'r Repository, targets: Vec<LogTarget>) -> anyhow::Result<Self> {
+    pub fn new(repository: &'r Repository, mut targets: Vec<LogTarget>) -> anyhow::Result<Self> {
         let mut rev_list = Self {
             repository,
             commits_cache: HashMap::new(),
@@ -82,19 +82,15 @@ impl<'r> RevList<'r> {
         };
 
         // Edge case: no targets provided excepting excluded revisions
-        let targets = if targets
+        if targets
             .iter()
             .all(|t| matches!(t, LogTarget::ExcludedRevision(_)))
         {
-            targets
-                .into_iter()
-                .chain(std::iter::once(LogTarget::IncludedRevision(
-                    Revision::try_parse(HEAD_REF_NAME)?,
-                )))
-                .collect()
-        } else {
-            targets
-        };
+            // Default to including HEAD
+            targets.extend(std::iter::once(LogTarget::IncludedRevision(
+                Revision::try_parse(HEAD_REF_NAME)?,
+            )));
+        }
 
         // Initialize the priority queue with all starting commits from targets
         for target in targets {
@@ -160,8 +156,9 @@ impl<'r> RevList<'r> {
                 .map(CommitQueueEntry::try_from)
                 .transpose()?;
 
-            // Compare the oldest interesting commit in output with the newest commit in the queue
-            // to decide whether we could still reach interesting commits from uninteresting ones
+            // Edge case: Compare the oldest interesting commit in output with the newest commit in the queue
+            // to decide whether we could still reach interesting commits from uninteresting ones,
+            // thus marking also the formers as uninteresting.
             if let Some(oldest_in_output) = oldest_in_output
                 && oldest_in_output.timestamp <= newest_in_queue.timestamp
             {

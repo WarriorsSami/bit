@@ -45,3 +45,7 @@ mod log_multiple_excluded_revisions;
 
 // Combined range and excluded expression tests
 mod log_combined_range_and_excluded_expressions;
+
+// Edge case tests
+mod log_interesting_commits_reachable_from_uninteresting;
+mod log_only_excluded_revisions_defaults_to_head;
