@@ -69,7 +69,7 @@ impl Repository {
     ) -> anyhow::Result<()> {
         let tree_diff =
             self.database()
-                .tree_diff(Some(&commit_a), Some(&commit_b), PathFilter::empty())?;
+                .tree_diff(Some(&commit_a), Some(&commit_b), &PathFilter::empty())?;
         let changeset = tree_diff.changes();
 
         for (path, change_type) in changeset {

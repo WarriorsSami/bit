@@ -180,7 +180,7 @@ impl Repository {
                 .unwrap_or(TreeDiff::new(self.database()))
         } else {
             self.database()
-                .tree_diff(parent_oid, Some(&commit_oid), PathFilter::empty())?
+                .tree_diff(parent_oid, Some(&commit_oid), &PathFilter::empty())?
         };
         let changeset = tree_diff.changes();
 

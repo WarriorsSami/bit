@@ -37,7 +37,7 @@ impl Repository {
         let tree_diff = self.database().tree_diff(
             Some(&current_oid),
             Some(&target_oid),
-            PathFilter::empty(),
+            &PathFilter::empty(),
         )?;
 
         let mut migration = Migration::new(self, &mut index, tree_diff);

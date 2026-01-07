@@ -32,7 +32,7 @@ impl Database {
         &self,
         old_oid: Option<&ObjectId>,
         new_oid: Option<&ObjectId>,
-        path_filter: PathFilter,
+        path_filter: &PathFilter,
     ) -> anyhow::Result<TreeDiff<'_>> {
         let mut tree_diff = TreeDiff::new(self);
         tree_diff.compare_oids(old_oid, new_oid, path_filter)?;

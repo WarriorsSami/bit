@@ -1,23 +1,26 @@
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct PathFilter {
-    path_trie: Trie<String>,
+    path_trie: SharedTrie<String>,
     root_path: PathBuf,
 }
 
 impl PathFilter {
     pub fn empty() -> Self {
         Self {
-            path_trie: Trie::with_matching(true),
+            path_trie: SharedTrie::with_matching(true),
             root_path: PathBuf::new(),
         }
     }
 
     pub fn new(paths: Vec<PathBuf>) -> Self {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
+
         for path in paths {
             let components: Vec<String> = path
                 .components()
@@ -40,71 +43,122 @@ impl PathFilter {
         &self,
         entries: impl Iterator<Item = (&'e String, &'e Entry)>,
     ) -> impl Iterator<Item = (&'e String, &'e Entry)> {
-        entries.filter(move |(path_str, _)| self.path_trie.contains_single(path_str))
+        entries.filter(move |(path_str, _)| self.path_trie.partly_contains(path_str))
     }
 
-    pub fn into_subpath_filter(self, path_part: &String) -> Self {
+    pub fn join_subpath_filter(&self, subpath: &String) -> Self {
+        let new_trie = if self.path_trie.is_root_matching() {
+            self.path_trie.clone()
+        } else {
+            let node = self.path_trie.root.borrow();
+            match node.children.get(subpath) {
+                Some(child_node) => SharedTrie {
+                    root: Rc::clone(child_node),
+                },
+                None => SharedTrie::new(),
+            }
+        };
+
+        let mut new_root_path = self.root_path.clone();
+        new_root_path.push(subpath);
+
         Self {
-            path_trie: if self.path_trie.is_matching {
-                self.path_trie
-            } else {
-                self.path_trie
-                    .children
-                    .get(path_part)
-                    .cloned()
-                    .unwrap_or_else(Trie::new)
-            },
-            root_path: self.root_path.join(path_part),
+            path_trie: new_trie,
+            root_path: new_root_path,
         }
     }
 }
 
+pub type TrieNodeRef<K> = Rc<RefCell<TrieNode<K>>>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Trie<T: Hash + Eq + Clone> {
-    is_matching: bool,
-    children: HashMap<T, Trie<T>>,
+pub struct SharedTrie<K: Hash + Eq + Clone> {
+    root: TrieNodeRef<K>,
 }
 
-impl<T: Hash + Eq + Clone> Trie<T> {
+impl<K: Hash + Eq + Clone> SharedTrie<K> {
     pub fn new() -> Self {
-        Trie {
-            is_matching: false,
+        Self {
+            root: Rc::new(RefCell::new(TrieNode::new())),
+        }
+    }
+
+    pub fn with_matching(is_matching: bool) -> Self {
+        Self {
+            root: Rc::new(RefCell::new(TrieNode::with_matching(is_matching))),
+        }
+    }
+
+    pub fn is_root_matching(&self) -> bool {
+        self.root.borrow().is_end
+    }
+
+    pub fn insert(&mut self, path: &[K]) {
+        let mut current = Rc::clone(&self.root);
+
+        for part in path {
+            let next = {
+                let mut node = current.borrow_mut();
+
+                node.children
+                    .entry(part.clone())
+                    .or_insert_with(|| Rc::new(RefCell::new(TrieNode::new())))
+                    .clone()
+            };
+            current = next;
+        }
+
+        current.borrow_mut().is_end = true;
+    }
+
+    pub fn contains(&self, path: &[K]) -> bool {
+        let mut current = Rc::clone(&self.root);
+
+        for part in path {
+            let next = {
+                let node = current.borrow();
+
+                match node.children.get(part) {
+                    Some(child) => child.clone(),
+                    None => return false,
+                }
+            };
+            current = next;
+        }
+
+        current.borrow().is_end
+    }
+
+    pub fn partly_contains(&self, path_part: &K) -> bool {
+        let node = self.root.borrow();
+
+        if node.is_end {
+            return true;
+        }
+
+        node.children.contains_key(path_part)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TrieNode<K: Hash + Eq + Clone> {
+    is_end: bool,
+    children: HashMap<K, TrieNodeRef<K>>,
+}
+
+impl<K: Hash + Eq + Clone> TrieNode<K> {
+    pub fn new() -> Self {
+        Self {
+            is_end: false,
             children: HashMap::new(),
         }
     }
 
     pub fn with_matching(is_matching: bool) -> Self {
-        Trie {
-            is_matching,
+        Self {
+            is_end: is_matching,
             children: HashMap::new(),
         }
-    }
-
-    pub fn insert(&mut self, path: &[T]) {
-        let mut node = self;
-        for part in path {
-            node = node.children.entry(part.clone()).or_insert_with(Trie::new);
-        }
-        node.is_matching = true;
-    }
-
-    pub fn contains(&self, path: &[T]) -> bool {
-        let mut node = self;
-        for part in path {
-            match node.children.get(part) {
-                Some(child) => node = child,
-                None => return false,
-            }
-        }
-        node.is_matching
-    }
-
-    pub fn contains_single(&self, path_part: &T) -> bool {
-        if self.is_matching {
-            return true;
-        }
-
-        self.children.contains_key(path_part)
     }
 }
 
@@ -116,7 +170,7 @@ mod tests {
 
     #[test]
     fn trie_insert_and_contains_single_path() {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
         let path = vec!["src", "main", "rs"];
         trie.insert(&path);
 
@@ -125,7 +179,7 @@ mod tests {
 
     #[test]
     fn trie_does_not_contain_nonexistent_path() {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
         let path = vec!["src", "main", "rs"];
         trie.insert(&path);
 
@@ -135,7 +189,7 @@ mod tests {
 
     #[test]
     fn trie_does_not_match_partial_path() {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
         let path = vec!["src", "main", "rs"];
         trie.insert(&path);
 
@@ -146,7 +200,7 @@ mod tests {
 
     #[test]
     fn trie_contains_multiple_paths() {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
         trie.insert(&["src", "main", "rs"]);
         trie.insert(&["src", "lib", "rs"]);
         trie.insert(&["tests", "integration", "rs"]);
@@ -158,7 +212,7 @@ mod tests {
 
     #[test]
     fn trie_handles_shared_prefixes() {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
         trie.insert(&["src", "utils", "helper", "rs"]);
         trie.insert(&["src", "utils", "config", "rs"]);
         trie.insert(&["src", "main", "rs"]);
@@ -172,40 +226,39 @@ mod tests {
     }
 
     #[test]
-    fn trie_contains_single_returns_true_when_matching() {
-        let mut trie = Trie::new();
-        trie.is_matching = true;
+    fn trie_partly_contains_returns_true_when_matching() {
+        let trie = SharedTrie::with_matching(true);
 
         // When is_matching is true, any path part should match
-        assert!(trie.contains_single(&"anything"));
-        assert!(trie.contains_single(&"src"));
+        assert!(trie.partly_contains(&"anything"));
+        assert!(trie.partly_contains(&"src"));
     }
 
     #[test]
-    fn trie_contains_single_checks_children() {
-        let mut trie = Trie::new();
+    fn trie_partly_contains_checks_children() {
+        let mut trie = SharedTrie::new();
         trie.insert(&["src", "main"]);
 
         // Should match first component
-        assert!(trie.contains_single(&"src"));
+        assert!(trie.partly_contains(&"src"));
         // Should not match non-existent component
-        assert!(!trie.contains_single(&"docs"));
+        assert!(!trie.partly_contains(&"docs"));
     }
 
     #[test]
     fn trie_empty_path() {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
         let empty_path: Vec<&str> = vec![];
         trie.insert(&empty_path);
 
         // Empty path should mark the root as matching
-        assert!(trie.is_matching);
+        assert!(trie.is_root_matching());
         assert!(trie.contains(&empty_path));
     }
 
     #[test]
     fn trie_with_numeric_types() {
-        let mut trie = Trie::new();
+        let mut trie = SharedTrie::new();
         trie.insert(&[1, 2, 3]);
         trie.insert(&[1, 2, 4]);
         trie.insert(&[1, 5, 6]);
@@ -285,7 +338,7 @@ mod tests {
         let paths = vec![PathBuf::from("src/utils/helper.rs")];
         let filter = PathFilter::new(paths);
 
-        let advanced = filter.into_subpath_filter(&"src".to_string());
+        let advanced = filter.join_subpath_filter(&"src".to_string());
 
         assert_eq!(advanced.path(), Path::new("src"));
     }
@@ -299,7 +352,7 @@ mod tests {
         let filter = PathFilter::new(paths);
 
         // Advance to "src"
-        let filter_src = filter.into_subpath_filter(&"src".to_string());
+        let filter_src = filter.join_subpath_filter(&"src".to_string());
 
         let utils = "utils".to_string();
         let main_rs = "main.rs".to_string();
@@ -322,7 +375,7 @@ mod tests {
         let filter = PathFilter::new(paths);
 
         // When the trie is already matching, advancing should preserve that state
-        let filter_src = filter.into_subpath_filter(&"src".to_string());
+        let filter_src = filter.join_subpath_filter(&"src".to_string());
 
         // After matching "src", everything under it should match
         let main_rs = "main.rs".to_string();
@@ -332,7 +385,7 @@ mod tests {
 
         let filtered: Vec<_> = filter_src
             .clone()
-            .into_subpath_filter(&"anything".to_string())
+            .join_subpath_filter(&"anything".to_string())
             .filter_matching_entries(entries.into_iter())
             .collect();
 
@@ -362,13 +415,13 @@ mod tests {
         let paths = vec![PathBuf::from("a/b/c/d.txt")];
         let filter = PathFilter::new(paths);
 
-        let filter_a = filter.into_subpath_filter(&"a".to_string());
+        let filter_a = filter.join_subpath_filter(&"a".to_string());
         assert_eq!(filter_a.path(), Path::new("a"));
 
-        let filter_b = filter_a.into_subpath_filter(&"b".to_string());
+        let filter_b = filter_a.join_subpath_filter(&"b".to_string());
         assert_eq!(filter_b.path(), Path::new("a/b"));
 
-        let filter_c = filter_b.into_subpath_filter(&"c".to_string());
+        let filter_c = filter_b.join_subpath_filter(&"c".to_string());
         assert_eq!(filter_c.path(), Path::new("a/b/c"));
 
         // At the "c" level, "d.txt" should match
@@ -406,7 +459,7 @@ mod tests {
         let filter = PathFilter::new(paths);
 
         // Advance with a path that doesn't match
-        let filter_docs = filter.into_subpath_filter(&"docs".to_string());
+        let filter_docs = filter.join_subpath_filter(&"docs".to_string());
 
         let readme_md = "README.md".to_string();
         let guide_md = "guide.md".to_string();

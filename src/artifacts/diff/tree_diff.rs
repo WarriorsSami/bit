@@ -122,7 +122,7 @@ impl<'r> TreeDiff<'r> {
         &mut self,
         old: Option<&ObjectId>,
         new: Option<&ObjectId>,
-        path_filter: PathFilter,
+        path_filter: &PathFilter,
     ) -> anyhow::Result<()> {
         if old == new {
             return Ok(());
@@ -131,8 +131,8 @@ impl<'r> TreeDiff<'r> {
         let old_tree_entries = self.inflate_oid_to_tree_entries(old)?;
         let new_tree_entries = self.inflate_oid_to_tree_entries(new)?;
 
-        self.detect_deletions(&old_tree_entries, &new_tree_entries, path_filter.clone())?;
-        self.detect_additions(&old_tree_entries, &new_tree_entries, path_filter.clone())?;
+        self.detect_deletions(&old_tree_entries, &new_tree_entries, path_filter)?;
+        self.detect_additions(&old_tree_entries, &new_tree_entries, path_filter)?;
 
         Ok(())
     }
@@ -160,15 +160,14 @@ impl<'r> TreeDiff<'r> {
         }
     }
 
-    // TODO: optimize by removing redundant cloning
     fn detect_deletions(
         &mut self,
         old: &TreeEntryMap,
         new: &TreeEntryMap,
-        path_filter: PathFilter,
+        path_filter: &PathFilter,
     ) -> anyhow::Result<()> {
         for (name, entry) in path_filter.filter_matching_entries(old.iter()) {
-            let subpath_filter = path_filter.clone().into_subpath_filter(name);
+            let subpath_filter = path_filter.join_subpath_filter(name);
             let path = subpath_filter.path().to_path_buf();
             let other = new.get(name);
 
@@ -191,7 +190,7 @@ impl<'r> TreeDiff<'r> {
                 None
             };
 
-            self.compare_oids(tree_a_oid, tree_b_oid, subpath_filter)?;
+            self.compare_oids(tree_a_oid, tree_b_oid, &subpath_filter)?;
 
             let blob_a = if entry.is_tree() {
                 None
@@ -216,10 +215,10 @@ impl<'r> TreeDiff<'r> {
         &mut self,
         old: &TreeEntryMap,
         new: &TreeEntryMap,
-        path_filter: PathFilter,
+        path_filter: &PathFilter,
     ) -> anyhow::Result<()> {
         for (name, entry) in path_filter.filter_matching_entries(new.iter()) {
-            let subpath_filter = path_filter.clone().into_subpath_filter(name);
+            let subpath_filter = path_filter.join_subpath_filter(name);
             let path = subpath_filter.path().to_path_buf();
             let other = old.get(name);
 
@@ -228,7 +227,7 @@ impl<'r> TreeDiff<'r> {
             }
 
             if entry.is_tree() {
-                self.compare_oids(None, Some(&entry.oid), subpath_filter)?;
+                self.compare_oids(None, Some(&entry.oid), &subpath_filter)?;
             } else {
                 // This is a newly added blob file
                 self.change_set

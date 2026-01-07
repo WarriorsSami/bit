@@ -382,7 +382,7 @@ impl<'r> RevList<'r> {
         let tree_diff = self
             .repository
             .database()
-            .tree_diff(old, new, self.path_filter.clone())?;
+            .tree_diff(old, new, &self.path_filter)?;
         self.commits_diffs.insert(key, tree_diff.clone());
 
         Ok(tree_diff)
