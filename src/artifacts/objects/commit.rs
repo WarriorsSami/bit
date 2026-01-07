@@ -1,3 +1,25 @@
+//! Git commit object
+//!
+//! Commits represent snapshots of the repository at specific points in time.
+//! They contain:
+//! - A tree object ID (directory snapshot)
+//! - Parent commit ID(s) (for history)
+//! - Author and committer information
+//! - Commit message
+//!
+//! ## Format
+//!
+//! On disk:
+//! ```text
+//! commit <size>\0
+//! tree <tree-sha>
+//! parent <parent-sha>
+//! author <name> <email> <timestamp> <timezone>
+//! committer <name> <email> <timestamp> <timezone>
+//!
+//! <commit message>
+//! ```
+
 use crate::artifacts::objects::object::Unpackable;
 use crate::artifacts::objects::object::{Object, Packable};
 use crate::artifacts::objects::object_id::ObjectId;
@@ -6,6 +28,9 @@ use anyhow::Context;
 use bytes::Bytes;
 use std::io::{BufRead, Write};
 
+/// Author or committer information
+///
+/// Contains name, email, and timestamp with timezone information.
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Author {
     name: String,
@@ -14,6 +39,12 @@ pub struct Author {
 }
 
 impl Author {
+    /// Create a new author with the current timestamp
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Author's name
+    /// * `email` - Author's email address
     pub fn new(name: String, email: String) -> Self {
         Author {
             name,
@@ -22,6 +53,13 @@ impl Author {
         }
     }
 
+    /// Create a new author with a specific timestamp
+    ///
+    /// # Arguments
+    ///
+    /// * `name` - Author's name
+    /// * `email` - Author's email address  
+    /// * `timestamp` - Specific timestamp with timezone
     pub fn new_with_timestamp(
         name: String,
         email: String,
@@ -34,10 +72,20 @@ impl Author {
         }
     }
 
+    /// Format author name and email for display
+    ///
+    /// # Returns
+    ///
+    /// String in format "Name <email@example.com>"
     pub fn display_name(&self) -> String {
         format!("{} <{}>", self.name, self.email)
     }
 
+    /// Format complete author info including timestamp
+    ///
+    /// # Returns
+    ///
+    /// String in format "Name <email> timestamp timezone"
     pub fn display(&self) -> String {
         format!(
             "{} <{}> {} {}",
@@ -48,6 +96,14 @@ impl Author {
         )
     }
 
+    /// Load author information from environment variables
+    ///
+    /// Reads GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, and optionally GIT_AUTHOR_DATE.
+    /// If no date is provided, uses current time.
+    ///
+    /// # Returns
+    ///
+    /// Author struct populated from environment
     pub fn load_from_env() -> anyhow::Result<Self> {
         let name = std::env::var("GIT_AUTHOR_NAME").context("GIT_AUTHOR_NAME not set")?;
         let email = std::env::var("GIT_AUTHOR_EMAIL").context("GIT_AUTHOR_EMAIL not set")?;
@@ -63,12 +119,18 @@ impl Author {
         }
     }
 
+    /// Format timestamp in human-readable form
+    ///
+    /// # Returns
+    ///
+    /// String like "Mon Jan 1 12:34:56 2024 +0000"
     pub fn readable_timestamp(&self) -> String {
         self.timestamp
             .format("%a %b %-d %H:%M:%S %Y %z")
             .to_string()
     }
 
+    /// Get the timestamp
     pub fn timestamp(&self) -> chrono::DateTime<chrono::FixedOffset> {
         self.timestamp
     }
@@ -118,16 +180,37 @@ impl TryFrom<&str> for Author {
     }
 }
 
+/// Git commit object
+///
+/// Represents a snapshot of the repository with metadata.
+/// Contains references to:
+/// - The tree representing the state of files
+/// - Parent commit(s) for history
+/// - Author and committer information
+/// - Commit message
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Commit {
+    /// Parent commit ID (None for initial commit)
     parent: Option<ObjectId>,
+    /// Tree object ID representing the directory snapshot
     tree_oid: ObjectId,
+    /// Author who wrote the changes
     author: Author,
+    /// Committer who recorded the commit
     committer: Author,
+    /// Commit message
     message: String,
 }
 
 impl Commit {
+    /// Create a new commit
+    ///
+    /// # Arguments
+    ///
+    /// * `parent` - Parent commit ID (None for initial commit)
+    /// * `tree_oid` - Tree object representing the snapshot
+    /// * `author` - Author (also used as committer)
+    /// * `message` - Commit message
     pub fn new(
         parent: Option<ObjectId>,
         tree_oid: ObjectId,
@@ -143,14 +226,19 @@ impl Commit {
         }
     }
 
+    /// Get the first line of the commit message
+    ///
+    /// Useful for short-form display (e.g., `git log --oneline`)
     pub fn short_message(&self) -> String {
         self.message.lines().next().unwrap_or("").to_string()
     }
 
+    /// Get the full commit message
     pub fn message(&self) -> &str {
         &self.message
     }
 
+    /// Get the tree object ID
     pub fn tree_oid(&self) -> &ObjectId {
         &self.tree_oid
     }

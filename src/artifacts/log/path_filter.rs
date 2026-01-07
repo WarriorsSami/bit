@@ -1,12 +1,46 @@
+//! Path filtering for git log
+//!
+//! This module implements efficient path filtering using a trie data structure.
+//! It allows filtering commit history to show only commits that affect specific files.
+//!
+//! ## Data Structure
+//!
+//! Uses a shared-reference trie (prefix tree) to efficiently:
+//! - Check if a path matches any filter
+//! - Navigate to subdirectories while maintaining filter state
+//! - Handle directory hierarchies correctly
+//!
+//! ## Performance
+//!
+//! The trie allows O(k) lookup where k is the path depth, much faster than
+//! iterating through all filter paths for each file.
+
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+/// Path filter for log traversal
+///
+/// Filters tree entries based on specified paths. Uses a trie for efficient
+/// prefix matching and supports navigating into subdirectories.
+///
+/// ## Empty Filter
+///
+/// An empty filter (created with `empty()`) matches all paths.
+///
+/// ## Example
+///
+/// ```ignore
+/// let filter = PathFilter::new(vec![PathBuf::from("src/main.rs")]);
+/// // Will match "src" and "src/main.rs" but not "tests/test.rs"
+/// ```
 #[derive(Debug, Clone)]
 pub struct PathFilter {
+    /// Trie structure for efficient path matching
     path_trie: SharedTrie<String>,
+    /// Current root path for this filter (used when navigating into subdirectories)
     root_path: PathBuf,
 }
 
@@ -69,10 +103,22 @@ impl PathFilter {
     }
 }
 
+/// Reference-counted trie node
 pub type TrieNodeRef<K> = Rc<RefCell<TrieNode<K>>>;
 
+/// Shared-reference trie (prefix tree)
+///
+/// A trie that uses reference counting to allow multiple filters to share
+/// the same underlying trie structure. This is memory-efficient when
+/// navigating into subdirectories during tree traversal.
+///
+/// ## Sharing
+///
+/// When navigating into a subdirectory, we create a new filter that shares
+/// a subtree of the original trie rather than copying it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SharedTrie<K: Hash + Eq + Clone> {
+    /// Root node of the trie (or subtree)
     root: TrieNodeRef<K>,
 }
 
@@ -140,9 +186,20 @@ impl<K: Hash + Eq + Clone> SharedTrie<K> {
     }
 }
 
+/// Node in the trie structure
+///
+/// Each node represents a path component and can have multiple children
+/// representing the next level of the path hierarchy.
+///
+/// ## Fields
+///
+/// - `is_end`: True if this node represents the end of a complete path
+/// - `children`: Map of path components to child nodes
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrieNode<K: Hash + Eq + Clone> {
+    /// Whether this node marks the end of a complete path
     is_end: bool,
+    /// Child nodes indexed by path component
     children: HashMap<K, TrieNodeRef<K>>,
 }
 

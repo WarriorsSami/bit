@@ -1,15 +1,46 @@
+//! Line-by-line diff algorithm (Myers' diff)
+//!
+//! This module implements the Myers' difference algorithm for computing
+//! the shortest edit script between two sequences of lines.
+//!
+//! ## Algorithm
+//!
+//! Myers' algorithm finds the minimal set of insertions and deletions needed
+//! to transform sequence A into sequence B. It operates in O(ND) time where:
+//! - N = length of A + length of B
+//! - D = size of the shortest edit script
+//!
+//! ## Output Format
+//!
+//! The diff is organized into "hunks" - contiguous regions of changes
+//! with surrounding context lines. This matches the unified diff format
+//! used by Git and other version control systems.
+//!
+//! ## Features
+//!
+//! - Color-coded output (red for deletions, green for insertions)
+//! - Configurable context lines around changes
+//! - Hunk headers showing line ranges
+
 use colored::Colorize;
 use derive_new::new;
 use std::fmt::Display;
 
 type Lines<T> = Vec<Line<T>>;
 
+/// A line in a file with its line number
 #[derive(Debug, Clone, PartialEq, Eq, new)]
 pub struct Line<T> {
     number: usize,
     value: T,
 }
 
+/// An edit operation in the diff
+///
+/// Represents one of three possible operations:
+/// - Delete: Line exists in old version
+/// - Insert: Line exists in new version  
+/// - Equal: Line unchanged between versions
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Edit<T> {
     Delete { line: Line<T> },
@@ -63,12 +94,31 @@ where
     }
 }
 
+/// Number of unchanged lines to show around each change
 const HUNK_CONTEXT: isize = 3;
 
+/// A contiguous region of changes with context
+///
+/// Hunks group related changes together with surrounding context lines.
+/// This makes diffs more readable and provides enough context to understand
+/// the changes.
+///
+/// ## Format
+///
+/// ```text
+/// @@ -<a_start>,<a_lines> +<b_start>,<b_lines> @@
+/// <context>
+/// -<deleted lines>
+/// +<inserted lines>
+/// <context>
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, new)]
 pub struct Hunk<T> {
+    /// Starting line number in old file
     a_start: usize,
+    /// Starting line number in new file
     b_start: usize,
+    /// List of edits in this hunk
     edits: Vec<Edit<T>>,
 }
 

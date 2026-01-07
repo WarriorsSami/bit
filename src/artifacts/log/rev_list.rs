@@ -1,3 +1,28 @@
+//! Revision list traversal for git log
+//!
+//! This module implements the core algorithm for traversing commit history,
+//! similar to `git rev-list`. It supports:
+//!
+//! - Topological ordering by timestamp
+//! - Range expressions (commit1..commit2)
+//! - Excluded revisions (^commit)
+//! - Path filtering (show only commits affecting specific files)
+//! - Handling of merge commits and complex histories
+//!
+//! ## Algorithm
+//!
+//! The traversal uses a priority queue ordered by commit timestamp to process
+//! commits in reverse chronological order. Commits are marked with flags to track
+//! their state (seen, added, uninteresting, etc.) and ensure correct handling
+//! of complex revision graphs.
+//!
+//! ## Edge Cases
+//!
+//! Special handling for:
+//! - Commits with identical timestamps (uses OID as tiebreaker)
+//! - Uninteresting commits that might still lead to interesting ones
+//! - Path filtering that requires tree diffing
+
 use crate::areas::refs::HEAD_REF_NAME;
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::revision::Revision;
@@ -66,17 +91,39 @@ impl PartialOrd for CommitQueueEntry {
     }
 }
 
+/// Type alias for commit diffs cache
 pub type CommitsDiffs<'r> = HashMap<(Option<ObjectId>, Option<ObjectId>), TreeDiff<'r>>;
 
+/// Revision list traverser
+///
+/// Implements the core git log algorithm for traversing commit history
+/// with support for range expressions, excluded revisions, and path filtering.
+///
+/// ## Fields
+///
+/// - `commits_cache`: Cached commit objects to avoid redundant database reads
+/// - `commits_flags`: Tracking flags for each commit's processing state
+/// - `commits_pqueue`: Priority queue ordered by timestamp for chronological traversal
+/// - `commits_output_list`: Final ordered list of commits to display
+/// - `path_filter`: Optional filter to show only commits affecting specific paths
+/// - `commits_diffs`: Cached tree diffs for path filtering
 pub struct RevList<'r> {
     repository: &'r Repository,
+    /// Cache of loaded commit objects
     commits_cache: HashMap<ObjectId, Commit>,
+    /// Processing state flags for each commit
     commits_flags: HashMap<ObjectId, HashSet<LogTraversalCommitFlag>>,
+    /// Priority queue for timestamp-ordered traversal
     commits_pqueue: BinaryHeap<CommitQueueEntry>,
+    /// Whether the traversal uses exclusion/range expressions
     is_limited: bool,
+    /// Final output list of commits
     commits_output_list: Vec<Commit>,
+    /// Paths to filter by
     interesting_files: Vec<PathBuf>,
+    /// Cached tree diffs for path filtering
     commits_diffs: CommitsDiffs<'r>,
+    /// Trie-based path filter
     path_filter: PathFilter,
 }
 

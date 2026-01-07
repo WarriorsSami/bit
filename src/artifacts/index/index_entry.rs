@@ -1,3 +1,16 @@
+//! Index entry representation
+//!
+//! Each entry in the index represents a tracked file with:
+//! - File path
+//! - Content hash (object ID)
+//! - File metadata (mode, size, timestamps)
+//!
+//! ## Entry Format
+//!
+//! Entries are stored in a binary format with 8-byte alignment for efficient reading.
+//! Metadata includes both file status (mode, size) and timestamps (mtime, ctime)
+//! which enable fast change detection without reading file content.
+
 use crate::artifacts::index::entry_mode::{EntryMode, FileMode};
 use crate::artifacts::objects::object::{Packable, Unpackable};
 use crate::artifacts::objects::object_id::ObjectId;
@@ -11,15 +24,27 @@ use std::io::{BufRead, Write};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{Path, PathBuf};
 
+/// Maximum path length supported in index entries
 const MAX_PATH_SIZE: usize = 4095;
+
+/// Block size for entry alignment (8 bytes)
 pub const ENTRY_BLOCK: usize = 8;
+
+/// Minimum size of an index entry in bytes
 pub const ENTRY_MIN_SIZE: usize = 64; // Minimum size of an index entry in bytes
 
+/// Index entry representing a tracked file
+///
+/// Contains the file path, content hash, and metadata needed for
+/// efficient change detection.
 // TODO: Restrict access to certain fields
 #[derive(Debug, Clone, Default, new)]
 pub struct IndexEntry {
+    /// File path relative to repository root
     pub name: PathBuf,
+    /// SHA-1 hash of file content
     pub oid: ObjectId,
+    /// File metadata (mode, size, timestamps)
     pub metadata: EntryMetadata,
 }
 
@@ -79,18 +104,41 @@ impl Ord for IndexEntry {
     }
 }
 
+/// File metadata stored in index entries
+///
+/// Contains both file status information (mode, size, inode) and timestamps.
+/// This metadata enables Git to quickly detect file changes without reading
+/// content by comparing stat information.
+///
+/// ## Timestamps
+///
+/// - `ctime`: File status change time (inode modification)
+/// - `mtime`: File content modification time
+///
+/// Both include nanosecond precision for accurate change detection.
 #[derive(Debug, Clone, Default)]
 pub struct EntryMetadata {
+    /// Change time (seconds since Unix epoch)
     pub ctime: i64,
+    /// Change time nanoseconds
     pub ctime_nsec: i64,
+    /// Modification time (seconds since Unix epoch)
     pub mtime: i64,
+    /// Modification time nanoseconds
     pub mtime_nsec: i64,
+    /// Device ID
     pub dev: u64,
+    /// Inode number
     pub ino: u64,
+    /// File mode (permissions and type)
     pub mode: EntryMode,
+    /// User ID of owner
     pub uid: u32,
+    /// Group ID of owner
     pub gid: u32,
+    /// File size in bytes
     pub size: u64,
+    /// Entry flags (reserved for future use)
     pub flags: u32,
 }
 
@@ -102,22 +150,7 @@ impl Packable for IndexEntry {
                 .ok_or_else(|| anyhow::anyhow!("Invalid entry name"))?,
         );
         let entry_mode = self.metadata.mode.as_u32();
-        // pack!(
-        //     self.metadata.ctime,
-        //     self.metadata.ctime_nsec,
-        //     self.metadata.mtime,
-        //     self.metadata.mtime_nsec,
-        //     self.metadata.dev,
-        //     self.metadata.ino,
-        //     entry_mode,
-        //     self.metadata.uid,
-        //     self.metadata.gid,
-        //     self.metadata.size,
-        //     self.oid,
-        //     self.metadata.flags,
-        //     entry_name
-        //     => "N10H40nZ"
-        // );
+
         let mut entry_bytes = Vec::new();
         entry_bytes.write_u32::<byteorder::NetworkEndian>(self.metadata.ctime as u32)?;
         entry_bytes.write_u32::<byteorder::NetworkEndian>(self.metadata.ctime_nsec as u32)?;

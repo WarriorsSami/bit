@@ -1,3 +1,20 @@
+//! Git index (staging area)
+//!
+//! The index is Git's staging area that tracks which files should be included in the next commit.
+//! It maintains metadata about files including their mode, timestamps, and SHA-1 hashes.
+//!
+//! ## Index File Format
+//!
+//! The index file contains:
+//! - Header: Signature, version, and entry count
+//! - Entries: Sorted list of tracked files with metadata
+//! - Checksum: SHA-1 hash of the entire index for integrity verification
+//!
+//! ## Data Structures
+//!
+//! - `entries`: Maps file paths to their index entries
+//! - `children`: Maps directory paths to their children for efficient tree operations
+
 use crate::artifacts::index::checksum::Checksum;
 use crate::artifacts::index::index_entry::{
     ENTRY_BLOCK, ENTRY_MIN_SIZE, EntryMetadata, IndexEntry,
@@ -11,16 +28,30 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
 
+/// Git index (staging area)
+///
+/// Tracks files staged for the next commit along with their metadata.
+/// The index is persisted to disk and uses checksums for integrity verification.
 #[derive(Debug, Clone)]
 pub struct Index {
+    /// Path to the index file (typically `.git/index`)
     path: Box<Path>,
+    /// Tracked files mapped by path
     entries: BTreeMap<Box<Path>, IndexEntry>,
+    /// Directory hierarchy for efficient parent-child lookups
     children: BTreeMap<Box<Path>, BTreeSet<Box<Path>>>,
+    /// Index file header metadata
     header: IndexHeader,
+    /// Flag indicating if the index has been modified since loading
     changed: bool,
 }
 
 impl Index {
+    /// Create a new empty index
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the index file (typically `.git/index`)
     pub fn new(path: Box<Path>) -> Self {
         Index {
             path,
@@ -31,14 +62,21 @@ impl Index {
         }
     }
 
+    /// Get the path to the index file
     pub fn path(&self) -> &Path {
         &self.path
     }
 
+    /// Look up an entry by its path
+    ///
+    /// # Returns
+    ///
+    /// The index entry if found, None otherwise
     pub fn entry_by_path(&self, path: &Path) -> Option<&IndexEntry> {
         self.entries.get(path)
     }
 
+    /// Clear all entries from the index
     fn clear(&mut self) {
         self.entries.clear();
         self.children.clear();
@@ -46,6 +84,15 @@ impl Index {
         self.changed = false;
     }
 
+    /// Load the index from disk
+    ///
+    /// Reads the index file, parses the header and entries, and verifies
+    /// the checksum. If the file doesn't exist or is empty, the index
+    /// is cleared.
+    ///
+    /// # Locking
+    ///
+    /// Acquires a shared lock on the index file during reading.
     pub fn rehydrate(&mut self) -> anyhow::Result<()> {
         if !self.path().exists() {
             self.clear();
@@ -70,6 +117,10 @@ impl Index {
         reader.verify()
     }
 
+    /// Check if a path is tracked directly in the index
+    ///
+    /// Returns true if the path is either a file entry or has children
+    /// (is a directory with tracked files).
     pub fn is_directly_tracked(&self, path: &Path) -> bool {
         self.entries.contains_key(path) || self.children.contains_key(path)
     }
@@ -93,6 +144,9 @@ impl Index {
         Ok(header.entries_count)
     }
 
+    /// Parse all entries from the index file
+    ///
+    /// Reads each entry, handling variable-length paths with 8-byte alignment.
     fn parse_entries(&mut self, entries_count: u32, reader: &mut Checksum) -> anyhow::Result<()> {
         for _ in 0..entries_count {
             let entry_bytes = reader.read(ENTRY_MIN_SIZE)?;
@@ -114,6 +168,10 @@ impl Index {
         Ok(())
     }
 
+    /// Remove any conflicting entries before adding a new entry
+    ///
+    /// Removes parent directories that might be file entries, and
+    /// removes any children entries if this entry is becoming a file.
     fn discard_conflicts(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
         entry
             .parent_dirs()?

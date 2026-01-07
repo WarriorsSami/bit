@@ -1,3 +1,22 @@
+//! Git references (branches, HEAD, tags)
+//!
+//! This module manages Git references which are human-readable names pointing to commits.
+//! References can be:
+//! - Direct: Containing a commit SHA-1
+//! - Symbolic: Pointing to another reference (e.g., HEAD -> refs/heads/master)
+//!
+//! ## Reference Types
+//!
+//! - HEAD: Special reference pointing to the current branch or commit
+//! - Branches: refs/heads/* pointing to branch tip commits
+//! - Tags: refs/tags/* pointing to tagged commits
+//!
+//! ## File Format
+//!
+//! References are stored as text files containing either:
+//! - A 40-character SHA-1 hash (direct reference)
+//! - `ref: <path>` for symbolic references
+
 use crate::artifacts::branch::branch_name::{BranchName, SymRefName};
 use crate::artifacts::objects::object_id::ObjectId;
 use anyhow::Context;
@@ -9,17 +28,30 @@ use std::ops::DerefMut;
 use std::path::Path;
 use walkdir::WalkDir;
 
+/// Git references manager
+///
+/// Handles reading and writing references (branches, HEAD, tags).
+/// Provides safe concurrent access through file locking.
 #[derive(Debug, new)]
 pub struct Refs {
+    /// Path to the refs directory (typically `.git`)
     path: Box<Path>,
 }
 
+/// Regex pattern for parsing symbolic references
 const SYMREF_REGEX: &str = r"^ref: (.+)$";
+
+/// Name of the HEAD reference
 pub const HEAD_REF_NAME: &str = "HEAD";
 
+/// Internal representation of a reference value
+///
+/// Can be either a symbolic reference or a direct object ID.
 #[derive(Debug, Clone)]
 enum SymRefOrOid {
+    /// Symbolic reference pointing to another ref
     SymRef { sym_ref_name: SymRefName },
+    /// Direct object ID
     Oid(ObjectId),
 }
 
@@ -50,16 +82,44 @@ impl SymRefOrOid {
 }
 
 impl Refs {
+    /// Check if a branch is the currently checked-out branch
+    ///
+    /// # Arguments
+    ///
+    /// * `branch_name` - The branch to check
+    ///
+    /// # Returns
+    ///
+    /// true if the branch is current, false otherwise
     pub fn is_current_branch(&self, branch_name: &BranchName) -> anyhow::Result<bool> {
         let current_ref = self.current_ref(None)?;
 
         Ok(branch_name == &BranchName::try_parse_sym_ref_name(&current_ref)?)
     }
 
+    /// Read the object ID that a symbolic reference points to
+    ///
+    /// Follows symbolic references recursively until reaching a direct OID.
+    ///
+    /// # Returns
+    ///
+    /// Some(ObjectId) if the ref exists and points to a commit, None otherwise
     pub fn read_oid(&self, sym_ref_name: &SymRefName) -> anyhow::Result<Option<ObjectId>> {
         self.read_ref(BranchName::try_parse_sym_ref_name(sym_ref_name)?)
     }
 
+    /// Get the current symbolic reference
+    ///
+    /// Follows symbolic references recursively to find the final direct reference.
+    /// For example, if HEAD points to refs/heads/main, returns refs/heads/main.
+    ///
+    /// # Arguments
+    ///
+    /// * `source` - Starting reference (defaults to HEAD if None)
+    ///
+    /// # Returns
+    ///
+    /// The final symbolic reference in the chain
     pub fn current_ref(&self, source: Option<SymRefName>) -> anyhow::Result<SymRefName> {
         let source = source.unwrap_or_else(|| SymRefName::new("HEAD".to_string()));
 
@@ -72,6 +132,9 @@ impl Refs {
         }
     }
 
+    /// Read a symbolic reference, following indirection
+    ///
+    /// Recursively follows symbolic references until finding an OID.
     fn read_symref(&self, path: &Path) -> anyhow::Result<Option<ObjectId>> {
         let ref_content = SymRefOrOid::read_symref_or_oid(path)?;
 
@@ -84,6 +147,14 @@ impl Refs {
         }
     }
 
+    /// Update a symbolic reference to point to a new commit
+    ///
+    /// Handles both direct and indirect references, following the chain
+    /// and updating the final target.
+    ///
+    /// # Locking
+    ///
+    /// Acquires exclusive lock on the reference file during update.
     fn update_symref(&self, path: &Path, oid: ObjectId) -> anyhow::Result<()> {
         let mut ref_file = std::fs::OpenOptions::new()
             .read(true)

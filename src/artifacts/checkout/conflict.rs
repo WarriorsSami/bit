@@ -1,6 +1,21 @@
+//! Checkout conflict types and messages
+//!
+//! This module defines the types of conflicts that can occur during checkout
+//! and provides user-friendly error messages for each type.
+//!
+//! ## Conflict Types
+//!
+//! - Stale File: Working directory file differs from index
+//! - Stale Directory: Directory exists where checkout wants to create a file
+//! - Untracked Overwritten: Untracked file would be overwritten
+//! - Untracked Removed: Untracked file would be removed
+
 use crate::artifacts::database::database_entry::DatabaseEntry;
 use crate::artifacts::index::index_entry::{EntryMetadata, IndexEntry};
 
+/// User-friendly conflict message
+///
+/// Contains header and footer text to display around the list of conflicting files.
 #[derive(Debug)]
 pub struct ConflictMessage {
     pub header: &'static str,
@@ -30,11 +45,19 @@ impl From<&ConflictType> for ConflictMessage {
     }
 }
 
+/// Type of checkout conflict
+///
+/// Categorizes different ways a checkout operation can conflict with
+/// local changes or untracked files.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ConflictType {
+    /// Local modifications to tracked files would be lost
     StaleFile,
+    /// Directory exists where file should be created
     StaleDirectory,
+    /// Untracked file would be overwritten by checkout
     UntrackedOverwritten,
+    /// Untracked file would be removed by checkout
     UntrackedRemoved,
 }
 

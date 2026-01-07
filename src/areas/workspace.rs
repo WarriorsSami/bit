@@ -1,3 +1,16 @@
+//! Working directory operations
+//!
+//! The workspace module provides an abstraction over file system operations
+//! in the working directory (the user's project files).
+//!
+//! ## Responsibilities
+//!
+//! - Reading and writing files
+//! - Listing directories recursively
+//! - Tracking file metadata (mode, timestamps)
+//! - Filtering out ignored files and directories (.git, etc.)
+//! - Applying checkout migrations (creating, updating, deleting files)
+
 use crate::artifacts::checkout::migration::{ActionType, Migration};
 use crate::artifacts::index::index_entry::EntryMetadata;
 use crate::artifacts::objects::blob::Blob;
@@ -6,10 +19,16 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
+/// Paths that should always be ignored when scanning the workspace
 const IGNORED_PATHS: [&str; 3] = [".git", ".", ".."];
 
+/// Working directory abstraction
+///
+/// Provides file system operations for the Git working tree.
+/// All file paths are resolved relative to the workspace root.
 #[derive(Debug)]
 pub struct Workspace {
+    /// Root path of the working directory
     path: Box<Path>,
 }
 
@@ -22,11 +41,29 @@ impl Workspace {
         &self.path
     }
 
+    /// Parse a file into a Blob object
+    ///
+    /// Reads the file content and creates a Blob with default mode.
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the file relative to workspace root
     pub fn parse_blob(&self, path: &Path) -> anyhow::Result<Blob> {
         let data = self.read_file(path)?;
         Ok(Blob::new(data, Default::default()))
     }
 
+    /// List immediate children of a directory
+    ///
+    /// Returns only direct children, not recursive. Filters out ignored paths.
+    ///
+    /// # Arguments
+    ///
+    /// * `dir_path` - Directory to list (None for workspace root)
+    ///
+    /// # Returns
+    ///
+    /// Vector of paths to children, relative to workspace root
     pub fn list_dir(&self, dir_path: Option<&Path>) -> anyhow::Result<Vec<PathBuf>> {
         let dir_path = match dir_path {
             Some(p) => std::fs::canonicalize(p)?,
@@ -48,6 +85,17 @@ impl Workspace {
         }
     }
 
+    /// List all files recursively
+    ///
+    /// Walks the directory tree and returns all non-ignored files.
+    ///
+    /// # Arguments
+    ///
+    /// * `root_file_path` - Starting path (None for workspace root)
+    ///
+    /// # Returns
+    ///
+    /// Vector of file paths relative to workspace root
     // TODO: refactor to use iterator
     pub fn list_files(&self, root_file_path: Option<PathBuf>) -> anyhow::Result<Vec<PathBuf>> {
         let root_file_path = match root_file_path {
@@ -76,6 +124,9 @@ impl Workspace {
         }
     }
 
+    /// Check if a path should be ignored
+    ///
+    /// Checks against IGNORED_PATHS (.git, ., ..)
     fn is_ignored(path: &Path) -> bool {
         // Check if any component of the path is in IGNORED_PATHS
         path.components().any(|component| {

@@ -1,3 +1,22 @@
+//! Tree diffing algorithm
+//!
+//! This module implements efficient diffing between Git tree objects to detect
+//! added, deleted, and modified files.
+//!
+//! ## Algorithm
+//!
+//! The diff algorithm:
+//! 1. Loads two tree objects (old and new)
+//! 2. Recursively compares their entries
+//! 3. Detects changes by comparing object IDs
+//! 4. Supports filtering by change type (A/D/M/R)
+//! 5. Can filter by specific file paths
+//!
+//! ## Performance
+//!
+//! Uses BTreeMap for sorted traversal and efficient comparison.
+//! Only loads and expands subtrees when necessary (lazy evaluation).
+
 use crate::areas::database::Database;
 use crate::artifacts::database::database_entry::DatabaseEntry;
 use crate::artifacts::log::path_filter::PathFilter;
@@ -9,11 +28,18 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 bitflags! {
+    /// Filter flags for diff output
+    ///
+    /// Allows filtering the diff to show only specific types of changes.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct DiffFilter: u32 {
+        /// Show added files
         const ADDED = 0b0001;
+        /// Show deleted files
         const DELETED = 0b0010;
+        /// Show modified files
         const MODIFIED = 0b0100;
+        /// Show renamed files (not yet implemented)
         const RENAMED = 0b1000;
     }
 }
@@ -36,10 +62,19 @@ impl DiffFilter {
     }
 }
 
+/// Type of change detected in a tree diff
+///
+/// Represents the three fundamental types of file changes:
+/// - Added: File exists in new tree but not old
+/// - Deleted: File exists in old tree but not new
+/// - Modified: File exists in both but with different content
 #[derive(Debug, Clone, PartialEq)]
 pub enum TreeChangeType {
+    /// File was added
     Added(DatabaseEntry),
+    /// File was deleted
     Deleted(DatabaseEntry),
+    /// File was modified
     Modified {
         old: DatabaseEntry,
         new: DatabaseEntry,
@@ -89,12 +124,29 @@ impl TreeChangeType {
     }
 }
 
+/// Set of changes detected between two trees
 pub type ChangeSet = BTreeMap<PathBuf, TreeChangeType>;
+
+/// Map of tree entries (name -> database entry)
 pub type TreeEntryMap = BTreeMap<String, DatabaseEntry>;
 
+/// Tree diff engine
+///
+/// Compares two tree objects and produces a changeset of added, deleted,
+/// and modified files. Supports filtering by change type and file paths.
+///
+/// ## Usage
+///
+/// ```ignore
+/// let mut diff = TreeDiff::new(database);
+/// diff.compare_oids(old_tree_oid, new_tree_oid, &path_filter)?;
+/// let changes = diff.change_set();
+/// ```
 #[derive(Debug, Clone)]
 pub struct TreeDiff<'r> {
+    /// Reference to the object database
     database: &'r Database,
+    /// Detected changes between trees
     change_set: ChangeSet,
 }
 

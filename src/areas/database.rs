@@ -1,3 +1,15 @@
+//! Object database for Git objects
+//!
+//! The database stores all Git objects (blobs, trees, commits) using content-addressable storage.
+//! Objects are identified by their SHA-1 hash and stored in a directory structure based on
+//! the hash prefix for efficient lookup.
+//!
+//! ## Storage Format
+//!
+//! Objects are stored as:
+//! - Path: `.git/objects/ab/cdef123...` (first 2 chars as directory, rest as filename)
+//! - Content: Compressed (zlib) format containing type, size, and data
+
 use crate::artifacts::diff::tree_diff::TreeDiff;
 use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::blob::Blob;
@@ -12,22 +24,44 @@ use fake::rand;
 use std::io::{BufRead, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
+/// Git object database
+///
+/// Manages storage and retrieval of content-addressable objects.
+/// All objects are identified by their SHA-1 hash and stored in compressed format.
 #[derive(Debug)]
 pub struct Database {
+    /// Path to the objects directory (typically `.git/objects`)
     path: Box<Path>,
 }
 
 // TODO: implement packfiles for better performance and storage efficiency
 // TODO: refactor to use async fs operations
 impl Database {
+    /// Create a new database instance
+    ///
+    /// # Arguments
+    ///
+    /// * `path` - Path to the objects directory (typically `.git/objects`)
     pub fn new(path: Box<Path>) -> Self {
         Database { path }
     }
 
+    /// Get the path to the objects directory
     pub fn objects_path(&self) -> &Path {
         &self.path
     }
 
+    /// Create a tree diff between two commits
+    ///
+    /// # Arguments
+    ///
+    /// * `old_oid` - Object ID of the old tree (None for empty tree)
+    /// * `new_oid` - Object ID of the new tree (None for empty tree)
+    /// * `path_filter` - Filter to limit diff to specific paths
+    ///
+    /// # Returns
+    ///
+    /// A TreeDiff containing all changes between the two trees
     pub fn tree_diff(
         &self,
         old_oid: Option<&ObjectId>,
@@ -39,12 +73,33 @@ impl Database {
         Ok(tree_diff)
     }
 
+    /// Load raw object bytes from the database
+    ///
+    /// # Arguments
+    ///
+    /// * `object_id` - The SHA-1 hash identifying the object
+    ///
+    /// # Returns
+    ///
+    /// The decompressed object content including header
     pub fn load(&self, object_id: &ObjectId) -> anyhow::Result<Bytes> {
         let object_path = self.path.join(object_id.to_path());
 
         self.read_object(object_path)
     }
 
+    /// Store an object in the database
+    ///
+    /// The object is serialized, and its content is written to the appropriate
+    /// path based on its SHA-1 hash. If the object already exists, this is a no-op.
+    ///
+    /// # Arguments
+    ///
+    /// * `object` - Any object implementing the Object trait
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) if successful, error if storage fails
     pub fn store(&self, object: impl Object) -> anyhow::Result<()> {
         let object_path = self.path.join(object.object_path()?);
         let object_content = object.serialize()?;
@@ -68,6 +123,18 @@ impl Database {
         Ok(())
     }
 
+    /// Parse an object from the database into the appropriate type
+    ///
+    /// Loads the object, determines its type, and deserializes it into
+    /// the corresponding struct (Blob, Tree, or Commit).
+    ///
+    /// # Arguments
+    ///
+    /// * `object_id` - The SHA-1 hash identifying the object
+    ///
+    /// # Returns
+    ///
+    /// An ObjectBox enum containing the parsed object
     pub fn parse_object(&self, object_id: &ObjectId) -> anyhow::Result<ObjectBox<'_>> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
@@ -89,6 +156,11 @@ impl Database {
         }
     }
 
+    /// Parse an object as a Blob, if it is one
+    ///
+    /// # Returns
+    ///
+    /// Some(Blob) if the object is a blob, None otherwise
     pub fn parse_object_as_blob(&self, object_id: &ObjectId) -> anyhow::Result<Option<Blob>> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
@@ -98,6 +170,11 @@ impl Database {
         }
     }
 
+    /// Parse an object as a Tree, if it is one
+    ///
+    /// # Returns
+    ///
+    /// Some(Tree) if the object is a tree, None otherwise
     pub fn parse_object_as_tree(&self, object_id: &ObjectId) -> anyhow::Result<Option<Tree<'_>>> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
@@ -110,6 +187,11 @@ impl Database {
         }
     }
 
+    /// Parse an object as a Commit, if it is one
+    ///
+    /// # Returns
+    ///
+    /// Some(Commit) if the object is a commit, None otherwise
     pub fn parse_object_as_commit(&self, object_id: &ObjectId) -> anyhow::Result<Option<Commit>> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 

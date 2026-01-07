@@ -1,3 +1,26 @@
+//! Checkout migration and conflict detection
+//!
+//! This module handles the process of checking out a different commit,
+//! which involves:
+//!
+//! 1. Computing the diff between current and target trees
+//! 2. Detecting conflicts with local changes
+//! 3. Planning file system operations (create, delete, modify)
+//! 4. Applying changes to workspace and index
+//!
+//! ## Conflict Detection
+//!
+//! Detects several types of conflicts:
+//! - Stale files: Working directory file differs from index
+//! - Stale directories: Directory in the way of a file
+//! - Untracked overwrites: Checkout would overwrite untracked file
+//! - Untracked removals: Checkout would remove untracked directory
+//!
+//! ## Safety
+//!
+//! All operations are planned before execution, allowing conflicts to be
+//! detected and reported before any changes are made.
+
 use crate::areas::index::Index;
 use crate::areas::repository::Repository;
 use crate::artifacts::checkout::conflict::{ConflictMessage, ConflictType};
@@ -11,24 +34,42 @@ use anyhow::Context;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
+/// Type of file system action required for checkout
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ActionType {
+    /// Create new file
     Add,
+    /// Delete file
     Delete,
+    /// Modify existing file
     Modify,
 }
 
+/// Set of planned actions grouped by type
 pub type ActionsSet = HashMap<ActionType, Vec<(PathBuf, Option<DatabaseEntry>)>>;
+
+/// Set of detected conflicts grouped by type
 pub type ConflictsSet = HashMap<ConflictType, Vec<PathBuf>>;
 
+/// Checkout migration planner and executor
+///
+/// Plans and executes the migration from the current commit to a target commit.
+/// Detects conflicts before making any changes to ensure safety.
 pub struct Migration<'r> {
     repository: &'r Repository,
+    /// Diff between current and target trees
     tree_diff: TreeDiff<'r>,
+    /// Index to update
     index: &'r mut Index,
+    /// Inspector for detecting local changes
     inspector: Inspector<'r>,
+    /// Planned file system actions
     actions: ActionsSet,
+    /// Detected conflicts
     conflicts: ConflictsSet,
+    /// Directories to create
     mkdirs: BTreeSet<PathBuf>,
+    /// Directories to remove
     rmdirs: BTreeSet<PathBuf>,
 }
 

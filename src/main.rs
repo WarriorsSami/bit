@@ -1,3 +1,20 @@
+//! # Bit - A Git Implementation in Rust
+//!
+//! This is a learning project that implements core Git functionality from scratch.
+//! It provides a command-line interface for version control operations including:
+//! - Repository initialization
+//! - File staging and committing
+//! - Branch management
+//! - Status and diff viewing
+//! - Commit history traversal
+//!
+//! ## Architecture
+//!
+//! The codebase is organized into three main modules:
+//! - `areas`: Core repository components (database, index, refs, workspace)
+//! - `artifacts`: Git object types and algorithms (blobs, commits, trees, diff, log)
+//! - `commands`: CLI command implementations (plumbing and porcelain)
+
 #![allow(dead_code)]
 
 use crate::artifacts::core::PagerWriter;
@@ -18,6 +35,10 @@ mod areas;
 mod artifacts;
 mod commands;
 
+/// Main CLI structure parsed by clap
+///
+/// This is the top-level command-line interface for the bit version control system.
+/// It supports various subcommands for repository management, file operations, and history viewing.
 #[derive(Parser)]
 #[command(
     name = "bit",
@@ -42,6 +63,10 @@ struct Cli {
     command: Commands,
 }
 
+/// All available commands in the bit CLI
+///
+/// Commands are organized into plumbing (low-level) and porcelain (user-facing) operations,
+/// similar to Git's command structure.
 #[derive(Subcommand)]
 enum Commands {
     #[command(
@@ -191,6 +216,9 @@ enum Commands {
     },
 }
 
+/// Format options for displaying commit information
+///
+/// Controls how commits are rendered in log output.
 #[derive(Debug, Clone, Copy, ValueEnum, Default, PartialEq, Eq)]
 pub enum CommitDisplayFormat {
     #[value(name = "medium", help = "Medium format")]
@@ -200,14 +228,21 @@ pub enum CommitDisplayFormat {
     OneLine,
 }
 
+/// Decoration options for commit output
+///
+/// Controls whether and how to display branch/tag references alongside commits.
 #[derive(Debug, Clone, Copy, ValueEnum, Default, PartialEq, Eq)]
 pub enum CommitDecoration {
+    /// No decoration
     None,
+    /// Show abbreviated ref names
     #[default]
     Short,
+    /// Show full ref names
     Full,
 }
 
+/// Branch management subcommands
 #[derive(Subcommand)]
 enum BranchAction {
     #[command(name = "create", about = "Create a new branch")]
@@ -231,6 +266,9 @@ enum BranchAction {
     },
 }
 
+/// Application entry point
+///
+/// Initializes the async runtime and handles top-level errors.
 #[tokio::main]
 async fn main() {
     if let Err(err) = run().await {
@@ -239,6 +277,26 @@ async fn main() {
     }
 }
 
+/// Main application logic
+///
+/// This function:
+/// 1. Determines whether to use a pager based on terminal detection
+/// 2. Configures colored output appropriately for the output device
+/// 3. Parses command-line arguments
+/// 4. Dispatches to the appropriate command handler
+/// 5. Manages pager lifecycle for commands that benefit from pagination
+///
+/// # Pager Behavior
+///
+/// Commands that produce potentially long output (diff, log, branch list) use a pager
+/// when output is to a terminal. The pager is skipped when:
+/// - Output is redirected to a file or pipe
+/// - NO_PAGER environment variable is set
+///
+/// # Color Handling
+///
+/// Colors are enabled when using a pager (since final output goes to terminal),
+/// and disabled when piping to avoid ANSI escape codes in redirected output.
 async fn run() -> Result<()> {
     // Decide whether to use a pager or stdout directly FIRST, before parsing CLI
     // This ensures color settings are applied before any colored output is generated

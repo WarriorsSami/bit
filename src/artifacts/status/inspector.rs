@@ -1,3 +1,18 @@
+//! Status inspection logic
+//!
+//! This module implements the core logic for detecting file changes by comparing:
+//! - Working directory vs. index (staged changes)
+//! - Index vs. HEAD commit (unstaged changes)
+//!
+//! ## Detection Strategy
+//!
+//! 1. First check file metadata (size, mtime) for quick detection
+//! 2. If metadata changed, compute content hash for accurate detection
+//! 3. Handle special cases (untracked files, deletions, etc.)
+//!
+//! This mimics Git's approach of using stat() for performance while
+//! falling back to full content comparison when necessary.
+
 use crate::areas::index::Index;
 use crate::areas::repository::Repository;
 use crate::artifacts::database::database_entry::DatabaseEntry;
@@ -7,6 +22,10 @@ use crate::artifacts::status::file_change::{IndexChangeType, WorkspaceChangeType
 use derive_new::new;
 use std::path::Path;
 
+/// File status inspector
+///
+/// Compares the working directory, index, and HEAD to detect changes.
+/// Uses efficient stat-based comparison with content hash fallback.
 #[derive(new)]
 pub struct Inspector<'r> {
     repository: &'r Repository,

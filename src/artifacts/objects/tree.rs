@@ -1,3 +1,21 @@
+//! Git tree object
+//!
+//! Trees represent directory snapshots in Git. They contain entries for files (blobs)
+//! and subdirectories (other trees), along with their names and modes.
+//!
+//! ## Format
+//!
+//! On disk: `tree <size>\0<entries>`
+//! Each entry: `<mode> <name>\0<20-byte-sha1>`
+//!
+//! ## Tree Building
+//!
+//! Trees can be built from:
+//! - Index entries (staging area)
+//! - Existing tree objects (for reading)
+//!
+//! The tree structure is lazily evaluated for efficiency.
+
 use crate::artifacts::database::database_entry::DatabaseEntry;
 use crate::artifacts::index::entry_mode::EntryMode;
 use crate::artifacts::index::index_entry::IndexEntry;
@@ -12,10 +30,19 @@ use std::io::{BufRead, Write};
 use std::marker::PhantomData;
 use std::path::Path;
 
+/// Internal tree entry representation
+///
+/// Can be:
+/// - File: A blob reference
+/// - Directory: A nested tree
+/// - LazyDirectory: A tree that hasn't been expanded yet
 #[derive(Debug, Clone)]
 enum TreeEntry<'e> {
+    /// File entry (blob)
     File(IndexEntry),
+    /// Directory entry (nested tree)
     Directory(Tree<'e>),
+    /// Lazy directory entry (not yet expanded)
     LazyDirectory(IndexEntry),
 }
 
@@ -42,15 +69,41 @@ impl TreeEntry<'_> {
     }
 }
 
+/// Git tree object representing a directory snapshot
+///
+/// Trees maintain two sets of entries:
+/// - `readable_entries`: For trees loaded from the database
+/// - `writeable_entries`: For trees being built from the index
+///
+/// This dual representation allows efficient reading and writing of tree objects.
+///
+/// # Lifetime
+///
+/// The `'tree` lifetime ensures tree entries don't outlive their source data.
 // TODO: Ponder whether to implement ReadableTree and WritableTree for better separation of concerns
 #[derive(Debug, Clone, Default)]
 pub struct Tree<'tree> {
+    /// Entries loaded from database (read mode)
     readable_entries: BTreeMap<String, DatabaseEntry>,
+    /// Entries being built (write mode)
     writeable_entries: BTreeMap<String, TreeEntry<'tree>>,
+    /// Phantom data to track lifetime
     _marker: PhantomData<&'tree ()>,
 }
 
 impl<'tree> Tree<'tree> {
+    /// Build a tree from index entries
+    ///
+    /// Creates a hierarchical tree structure from a flat list of index entries.
+    /// Files are organized into directories matching their path structure.
+    ///
+    /// # Arguments
+    ///
+    /// * `entries` - Iterator of index entries to include in the tree
+    ///
+    /// # Returns
+    ///
+    /// The root tree object containing all entries
     pub fn build(entries: impl Iterator<Item = &'tree IndexEntry> + 'tree) -> anyhow::Result<Self> {
         let mut root = Self::default();
 
@@ -62,6 +115,15 @@ impl<'tree> Tree<'tree> {
         Ok(root)
     }
 
+    /// Traverse the tree depth-first, calling a function on each node
+    ///
+    /// Visits children before parents (post-order traversal), which is
+    /// necessary for storing trees since child OIDs must be known before
+    /// storing the parent.
+    ///
+    /// # Arguments
+    ///
+    /// * `func` - Function to call on each tree node
     pub fn traverse<F>(&self, func: &F) -> anyhow::Result<()>
     where
         F: Fn(&Tree<'tree>) -> anyhow::Result<()>,
@@ -76,6 +138,9 @@ impl<'tree> Tree<'tree> {
         Ok(())
     }
 
+    /// Add an entry to the tree at the appropriate location
+    ///
+    /// Creates intermediate directory entries as needed.
     fn add_entry(&mut self, parents: Vec<&Path>, entry: &IndexEntry) -> anyhow::Result<()> {
         if parents.is_empty() {
             self.writeable_entries.insert(
