@@ -3,7 +3,11 @@ name = "bit"
 version = "0.1.0"
 authors = ["Sami Barbut-Dica"]
 edition = "2024"
-rust-version = "1.91"
+rust-version = "1.93"
+
+[features]
+# Enable debug logging for best common ancestor (BCA) finding algorithm
+debug_merge = []
 
 [dependencies]
 anyhow = "1.0.98"

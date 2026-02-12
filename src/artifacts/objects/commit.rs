@@ -180,6 +180,41 @@ impl TryFrom<&str> for Author {
     }
 }
 
+/// Slim representation of a commit
+///
+/// Contains only essential information for lightweight operations like merge base finding.
+/// This struct borrows data from a cached commit to avoid redundant allocations and copies
+/// during graph traversal algorithms.
+///
+/// # Lifetime
+///
+/// The lifetime `'c` represents the lifetime of the commit cache from which this data is borrowed.
+/// The borrowed data (oid, parents) must live at least as long as this SlimCommit instance.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct SlimCommit<'c> {
+    /// Reference to the commit's object ID from the cache
+    pub oid: &'c ObjectId,
+    /// Reference to the commit's parent object IDs from the cache
+    pub parents: &'c [ObjectId],
+    /// Commit timestamp (owned, as it's needed for comparison)
+    pub timestamp: chrono::DateTime<chrono::FixedOffset>,
+}
+
+impl<'c> PartialOrd for SlimCommit<'c> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl<'c> Ord for SlimCommit<'c> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.timestamp.cmp(&other.timestamp)
+    }
+}
+
+// Note: SlimCommit is now created by borrowing from a commit cache in the Database.
+// The Database provides a method to create SlimCommit instances that borrow from its cache.
+
 /// Git commit object
 ///
 /// Represents a snapshot of the repository with metadata.

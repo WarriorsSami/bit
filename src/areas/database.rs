@@ -13,7 +13,7 @@
 use crate::artifacts::diff::tree_diff::TreeDiff;
 use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::blob::Blob;
-use crate::artifacts::objects::commit::Commit;
+use crate::artifacts::objects::commit::{Commit, SlimCommit};
 use crate::artifacts::objects::object::{Object, ObjectBox, Unpackable};
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::object_type::ObjectType;
@@ -21,8 +21,23 @@ use crate::artifacts::objects::tree::Tree;
 use anyhow::Context;
 use bytes::Bytes;
 use fake::rand;
+use std::collections::HashMap;
 use std::io::{BufRead, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+
+/// Cached commit data for efficient borrowing
+///
+/// This struct stores the essential commit information in a format
+/// optimized for creating borrowed SlimCommit instances.
+#[derive(Debug, Clone)]
+struct CachedCommit {
+    /// The commit's object ID
+    oid: ObjectId,
+    /// Parent commit object IDs
+    parents: Vec<ObjectId>,
+    /// Commit timestamp
+    timestamp: chrono::DateTime<chrono::FixedOffset>,
+}
 
 /// Git object database
 ///
@@ -379,5 +394,132 @@ impl Database {
     pub fn get_object_type(&self, object_id: &ObjectId) -> anyhow::Result<ObjectType> {
         let (object_type, _) = self.parse_object_as_bytes(object_id)?;
         Ok(object_type)
+    }
+}
+
+/// Commit cache for efficient borrowing during graph traversal algorithms
+///
+/// This cache stores loaded commits in a way that allows creating SlimCommit instances
+/// that borrow from the cache instead of owning their data. This is particularly useful
+/// for algorithms like merge base finding that may access the same commits multiple times.
+///
+/// # Lifetime Management
+///
+/// The cache stores commits with their ObjectIds and parent lists. SlimCommit instances
+/// created from this cache borrow references to these stored values, so they must not
+/// outlive the cache itself.
+///
+/// # Usage Pattern
+///
+/// ```rust,ignore
+/// let mut cache = CommitCache::new();
+///
+/// // Populate the cache as needed during traversal
+/// cache.load_commit(&database, &commit_id)?;
+///
+/// // Get borrowed SlimCommit instances
+/// let slim = cache.get_slim_commit(&commit_id)?;
+///
+/// // Use with BCA finder
+/// let finder = BCAFinder::new(|oid| cache.get_slim_commit(oid).unwrap());
+/// ```
+#[derive(Debug)]
+pub struct CommitCache {
+    /// Map from commit OID to cached commit data
+    commits: HashMap<ObjectId, CachedCommit>,
+}
+
+impl CommitCache {
+    /// Create a new empty commit cache
+    pub fn new() -> Self {
+        Self {
+            commits: HashMap::new(),
+        }
+    }
+
+    /// Load a commit into the cache if not already present
+    ///
+    /// # Arguments
+    ///
+    /// * `database` - The database to load the commit from
+    /// * `object_id` - The commit's object ID
+    ///
+    /// # Returns
+    ///
+    /// Ok(()) if successful, or an error if the object doesn't exist or isn't a commit
+    pub fn load_commit(&mut self, database: &Database, object_id: &ObjectId) -> anyhow::Result<()> {
+        if self.commits.contains_key(object_id) {
+            return Ok(()); // Already cached
+        }
+
+        let commit = database
+            .parse_object_as_commit(object_id)?
+            .ok_or_else(|| anyhow::anyhow!("Object {} is not a commit", object_id))?;
+
+        let cached = CachedCommit {
+            oid: commit.object_id()?,
+            parents: commit.parent().cloned().into_iter().collect(),
+            timestamp: commit.timestamp(),
+        };
+
+        self.commits.insert(object_id.clone(), cached);
+        Ok(())
+    }
+
+    /// Get a SlimCommit that borrows from this cache
+    ///
+    /// The commit must already be loaded into the cache via `load_commit`.
+    ///
+    /// # Lifetime
+    ///
+    /// The returned SlimCommit borrows from the cache, so it must not outlive
+    /// the cache instance. The lifetime `'cache` ties the SlimCommit to this cache.
+    ///
+    /// # Arguments
+    ///
+    /// * `object_id` - The commit's object ID
+    ///
+    /// # Returns
+    ///
+    /// A SlimCommit borrowing data from the cache, or an error if the commit
+    /// is not in the cache
+    pub fn get_slim_commit(&'_ self, object_id: &ObjectId) -> anyhow::Result<SlimCommit<'_>> {
+        let cached = self
+            .commits
+            .get(object_id)
+            .ok_or_else(|| anyhow::anyhow!("Commit {} not found in cache", object_id))?;
+
+        Ok(SlimCommit {
+            oid: &cached.oid,
+            parents: &cached.parents,
+            timestamp: cached.timestamp,
+        })
+    }
+
+    /// Get a SlimCommit, loading it from the database if necessary
+    ///
+    /// This is a convenience method that combines `load_commit` and `get_slim_commit`.
+    ///
+    /// # Arguments
+    ///
+    /// * `database` - The database to load from if needed
+    /// * `object_id` - The commit's object ID
+    ///
+    /// # Returns
+    ///
+    /// A SlimCommit borrowing data from the cache
+    pub fn get_or_load_slim_commit<'cache>(
+        &'cache mut self,
+        database: &Database,
+        object_id: &ObjectId,
+    ) -> anyhow::Result<SlimCommit<'cache>> {
+        self.load_commit(database, object_id)?;
+        self.get_slim_commit(object_id)
+    }
+}
+
+impl Default for CommitCache {
+    fn default() -> Self {
+        Self::new()
     }
 }
