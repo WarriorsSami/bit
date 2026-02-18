@@ -178,6 +178,31 @@ pub fn bit_commit_with_timestamp(dir: &Path, message: &str, timestamp: &str) -> 
     cmd
 }
 
+pub fn bit_merge(dir: &Path, branch: &str, message: &str) -> Command {
+    let mut cmd = run_bit_command(dir, &["merge", branch, "-m", message]);
+    cmd.envs(vec![
+        ("GIT_AUTHOR_NAME", &"fake_user".to_string()),
+        ("GIT_AUTHOR_EMAIL", &"fake_email@email.com".to_string()),
+        ("GIT_AUTHOR_DATE", &"2023-01-01 12:00:00 +0000".to_string()),
+    ]);
+    cmd
+}
+
+pub fn bit_merge_with_timestamp(
+    dir: &Path,
+    branch: &str,
+    message: &str,
+    timestamp: &str,
+) -> Command {
+    let mut cmd = run_bit_command(dir, &["merge", branch, "-m", message]);
+    cmd.envs(vec![
+        ("GIT_AUTHOR_NAME", &"fake_user".to_string()),
+        ("GIT_AUTHOR_EMAIL", &"fake_email@email.com".to_string()),
+        ("GIT_AUTHOR_DATE", &timestamp.to_string()),
+    ]);
+    cmd
+}
+
 /// Get the parent commit ID of a given commit by using git cat-file
 pub fn get_parent_commit_id(
     dir: &Path,

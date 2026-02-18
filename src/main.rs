@@ -214,6 +214,17 @@ enum Commands {
         #[arg(short, long, help = "Show the full diff of each commit")]
         patch: bool,
     },
+    #[command(
+        name = "merge",
+        about = "Join two or more development histories together",
+        long_about = "This command merges the specified revision into the current branch."
+    )]
+    Merge {
+        #[arg(index = 1, help = "The revision to merge into the current branch")]
+        target_revision: String,
+        #[arg(short, long, help = "The commit message for the merge commit")]
+        message: String,
+    },
 }
 
 /// Format options for displaying commit information
@@ -445,6 +456,17 @@ async fn run() -> Result<()> {
             if use_pager {
                 page_all(pager)?;
             }
+        }
+        Commands::Merge {
+            target_revision,
+            message,
+        } => {
+            let pwd = std::env::current_dir()?;
+            let mut repository = Repository::new(pwd, stdout_writer)?;
+
+            repository
+                .merge(target_revision.as_str(), message.as_str())
+                .await?
         }
     }
 

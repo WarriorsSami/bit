@@ -71,10 +71,29 @@ pub struct Migration<'r> {
     mkdirs: BTreeSet<PathBuf>,
     /// Directories to remove
     rmdirs: BTreeSet<PathBuf>,
+    /// Whether this is a merge operation (less strict conflict detection)
+    is_merge: bool,
 }
 
 impl<'r> Migration<'r> {
     pub fn new(repository: &'r Repository, index: &'r mut Index, tree_diff: TreeDiff<'r>) -> Self {
+        Self::new_with_mode(repository, index, tree_diff, false)
+    }
+
+    pub fn new_for_merge(
+        repository: &'r Repository,
+        index: &'r mut Index,
+        tree_diff: TreeDiff<'r>,
+    ) -> Self {
+        Self::new_with_mode(repository, index, tree_diff, true)
+    }
+
+    fn new_with_mode(
+        repository: &'r Repository,
+        index: &'r mut Index,
+        tree_diff: TreeDiff<'r>,
+        is_merge: bool,
+    ) -> Self {
         let actions = HashMap::from([
             (ActionType::Add, Vec::new()),
             (ActionType::Delete, Vec::new()),
@@ -99,6 +118,7 @@ impl<'r> Migration<'r> {
             conflicts,
             mkdirs: BTreeSet::new(),
             rmdirs: BTreeSet::new(),
+            is_merge,
         }
     }
 
@@ -178,7 +198,10 @@ impl<'r> Migration<'r> {
             TreeChangeType::Modified { old, new } => (Some(old), Some(new)),
         };
 
-        if self.index_differs_from_trees(entry, old_entry, new_entry)? {
+        // For merge operations, we don't check if the index differs from the trees
+        // because the index is expected to match the current HEAD, not the merge base or target.
+        // We only care about uncommitted changes in the workspace.
+        if !self.is_merge && self.index_differs_from_trees(entry, old_entry, new_entry)? {
             self.conflicts
                 .entry(ConflictType::StaleFile)
                 .or_default()

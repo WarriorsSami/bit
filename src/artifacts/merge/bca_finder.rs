@@ -157,18 +157,17 @@ impl fmt::Display for VisitState {
 ///   a SlimCommit that borrows from a commit cache. The HRTB (Higher-Rank Trait Bound)
 ///   `for<'c>` ensures the function works for any lifetime 'c.
 #[derive(Debug, Clone)]
-struct CommonAncestorsFinder<'c, CommitLoaderFn>
+struct CommonAncestorsFinder<CommitLoaderFn>
 where
-    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit<'c>,
+    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit,
 {
     /// Function to load commit data for any given commit ID
     commit_loader: CommitLoaderFn,
-    _marker: std::marker::PhantomData<&'c ()>, // Marker to tie the lifetime 'c to the struct
 }
 
-impl<'c, CommitLoaderFn> CommonAncestorsFinder<'c, CommitLoaderFn>
+impl<CommitLoaderFn> CommonAncestorsFinder<CommitLoaderFn>
 where
-    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit<'c>,
+    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit,
 {
     /// Creates a new common ancestor finder with the given commit loader function
     ///
@@ -186,10 +185,7 @@ where
     /// });
     /// ```
     fn new(commit_loader: CommitLoaderFn) -> Self {
-        Self {
-            commit_loader,
-            _marker: std::marker::PhantomData,
-        }
+        Self { commit_loader }
     }
 
     /// Finds all common ancestors between a source commit and a set of target commits
@@ -287,9 +283,9 @@ where
 
             // Process all parents
             for parent_id in current_commit.parents {
-                let parent_commit = (self.commit_loader)(parent_id);
+                let parent_commit = (self.commit_loader)(&parent_id);
                 let parent_state = ancestors_states
-                    .get(parent_id)
+                    .get(&parent_id)
                     .copied()
                     .unwrap_or(VisitState::NONE);
 
@@ -326,16 +322,16 @@ where
 }
 
 // Best Common Ancestor Finder with proper lifetime management
-pub struct BCAFinder<'c, CommitLoaderFn>
+pub struct BCAFinder<CommitLoaderFn>
 where
-    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit<'c>,
+    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit,
 {
-    inner: CommonAncestorsFinder<'c, CommitLoaderFn>,
+    inner: CommonAncestorsFinder<CommitLoaderFn>,
 }
 
-impl<'c, CommitLoaderFn> BCAFinder<'c, CommitLoaderFn>
+impl<CommitLoaderFn> BCAFinder<CommitLoaderFn>
 where
-    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit<'c>,
+    CommitLoaderFn: Fn(&ObjectId) -> SlimCommit,
 {
     /// Creates a new best common ancestor finder with the given commit loader function
     ///
@@ -592,15 +588,15 @@ mod tests {
                 .insert(commit_id.clone(), (commit_id, parents, timestamp));
         }
 
-        fn get_slim_commit(&'_ self, commit_id: &ObjectId) -> SlimCommit<'_> {
+        fn get_slim_commit(&self, commit_id: &ObjectId) -> SlimCommit {
             let (commit_id, parents, timestamp) = self
                 .commits
                 .get(commit_id)
                 .expect("Commit not found in test store");
 
             SlimCommit {
-                oid: commit_id,
-                parents: parents.as_slice(),
+                oid: commit_id.clone(),
+                parents: parents.clone(),
                 timestamp: *timestamp,
             }
         }
@@ -741,9 +737,9 @@ mod tests {
     }
 
     /// Helper function to check if `ancestor` is an ancestor of `commit` using BFS traversal
-    fn is_ancestor_of<'c, F>(commit: &ObjectId, ancestor: &ObjectId, get_parents: &'c F) -> bool
+    fn is_ancestor_of<F>(commit: &ObjectId, ancestor: &ObjectId, get_parents: &F) -> bool
     where
-        F: Fn(&ObjectId) -> Option<SlimCommit<'c>>,
+        F: Fn(&ObjectId) -> Option<SlimCommit>,
     {
         if commit == ancestor {
             return true;
@@ -773,13 +769,13 @@ mod tests {
     }
 
     /// Helper function to find all common ancestors of two commits
-    fn find_all_common_ancestors<'c, F>(
+    fn find_all_common_ancestors<F>(
         commit1: &ObjectId,
         commit2: &ObjectId,
-        get_parents: &'c F,
+        get_parents: &F,
     ) -> HashSet<ObjectId>
     where
-        F: Fn(&ObjectId) -> Option<SlimCommit<'c>>,
+        F: Fn(&ObjectId) -> Option<SlimCommit>,
     {
         // Find all ancestors of commit1
         let mut ancestors1 = HashSet::new();
@@ -821,14 +817,14 @@ mod tests {
     /// Validate that the given ancestor satisfies the best common ancestor invariant:
     /// A best common ancestor of commits X and Y is any common ancestor of X and Y
     /// that is not an ancestor of any other common ancestor.
-    fn validate_best_common_ancestor_invariant<'c, F>(
+    fn validate_best_common_ancestor_invariant<F>(
         commit1: &ObjectId,
         commit2: &ObjectId,
         bca: &ObjectId,
-        get_parents: &'c F,
+        get_parents: &F,
     ) -> bool
     where
-        F: Fn(&ObjectId) -> Option<SlimCommit<'c>>,
+        F: Fn(&ObjectId) -> Option<SlimCommit>,
     {
         // BCA must be a common ancestor
         if !is_ancestor_of(commit1, bca, get_parents) || !is_ancestor_of(commit2, bca, get_parents)
@@ -1090,8 +1086,6 @@ mod tests {
     #[rstest]
     fn test_complex_branching_common_ancestor(complex_branching: InMemoryCommitStore) {
         let a = create_oid("commit_a");
-        let b = create_oid("commit_b");
-        let c = create_oid("commit_c");
         let d = create_oid("commit_d");
         let e = create_oid("commit_e");
         let f = create_oid("commit_f");
@@ -1101,22 +1095,6 @@ mod tests {
         let j = create_oid("commit_j");
 
         let finder = BCAFinder::new(|oid| complex_branching.get_slim_commit(oid));
-
-        eprintln!("\n=== Complex Branching Graph ===");
-        complex_branching.debug_print_graph();
-
-        eprintln!("4. Formatted commit IDs:");
-        eprintln!("  A: {} -> {}", a, format_oid(&a));
-        eprintln!("  B: {} -> {}", b, format_oid(&b));
-        eprintln!("  C: {} -> {}", c, format_oid(&c));
-        eprintln!("  D: {} -> {}", d, format_oid(&d));
-        eprintln!("  E: {} -> {}", e, format_oid(&e));
-        eprintln!("  F: {} -> {}", f, format_oid(&f));
-        eprintln!("  G: {} -> {}", g, format_oid(&g));
-        eprintln!("  H: {} -> {}", h, format_oid(&h));
-        eprintln!("  I: {} -> {}", i, format_oid(&i));
-        eprintln!("  J: {} -> {}", j, format_oid(&j));
-        eprintln!("==============================\n");
 
         // Test different branch tips
         let ancestor = finder.find_best_common_ancestor(&e, &f);
@@ -1183,24 +1161,12 @@ mod tests {
 
     #[rstest]
     fn test_criss_cross_merge_common_ancestor(criss_cross_merge: InMemoryCommitStore) {
-        let a = create_oid("commit_a");
         let b = create_oid("commit_b");
         let c = create_oid("commit_c");
         let d = create_oid("commit_d");
         let e = create_oid("commit_e");
 
-        // Debug the commit graph structure for this complex scenario
-        eprintln!("\n=== Criss-Cross Merge Object IDs ===");
-        eprintln!("A: {}", a);
-        eprintln!("B: {}", b);
-        eprintln!("C: {}", c);
-        eprintln!("D: {}", d);
-        eprintln!("E: {}", e);
-        eprintln!("===============================\n");
-
         let finder = BCAFinder::new(|oid| criss_cross_merge.get_slim_commit(oid));
-
-        criss_cross_merge.debug_print_graph();
 
         // Test criss-cross merge points - D and E are merge commits from B and C
         // Both D and E are best common ancestors (neither is ancestor of the other)

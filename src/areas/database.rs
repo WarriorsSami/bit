@@ -21,6 +21,7 @@ use crate::artifacts::objects::tree::Tree;
 use anyhow::Context;
 use bytes::Bytes;
 use fake::rand;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
@@ -412,7 +413,7 @@ impl Database {
 /// # Usage Pattern
 ///
 /// ```rust,ignore
-/// let mut cache = CommitCache::new();
+/// let cache = CommitCache::new();
 ///
 /// // Populate the cache as needed during traversal
 /// cache.load_commit(&database, &commit_id)?;
@@ -420,20 +421,20 @@ impl Database {
 /// // Get borrowed SlimCommit instances
 /// let slim = cache.get_slim_commit(&commit_id)?;
 ///
-/// // Use with BCA finder
-/// let finder = BCAFinder::new(|oid| cache.get_slim_commit(oid).unwrap());
+/// // Use with BCA finder (with lazy loading)
+/// let finder = BCAFinder::new(|oid| cache.get_or_load_slim_commit(&database, oid).unwrap());
 /// ```
 #[derive(Debug)]
 pub struct CommitCache {
-    /// Map from commit OID to cached commit data
-    commits: HashMap<ObjectId, CachedCommit>,
+    /// Map from commit OID to cached commit data (uses RefCell for interior mutability)
+    commits: RefCell<HashMap<ObjectId, CachedCommit>>,
 }
 
 impl CommitCache {
     /// Create a new empty commit cache
     pub fn new() -> Self {
         Self {
-            commits: HashMap::new(),
+            commits: RefCell::new(HashMap::new()),
         }
     }
 
@@ -447,8 +448,8 @@ impl CommitCache {
     /// # Returns
     ///
     /// Ok(()) if successful, or an error if the object doesn't exist or isn't a commit
-    pub fn load_commit(&mut self, database: &Database, object_id: &ObjectId) -> anyhow::Result<()> {
-        if self.commits.contains_key(object_id) {
+    pub fn load_commit(&self, database: &Database, object_id: &ObjectId) -> anyhow::Result<()> {
+        if self.commits.borrow().contains_key(object_id) {
             return Ok(()); // Already cached
         }
 
@@ -462,18 +463,13 @@ impl CommitCache {
             timestamp: commit.timestamp(),
         };
 
-        self.commits.insert(object_id.clone(), cached);
+        self.commits.borrow_mut().insert(object_id.clone(), cached);
         Ok(())
     }
 
-    /// Get a SlimCommit that borrows from this cache
+    /// Get a SlimCommit that contains data from this cache
     ///
     /// The commit must already be loaded into the cache via `load_commit`.
-    ///
-    /// # Lifetime
-    ///
-    /// The returned SlimCommit borrows from the cache, so it must not outlive
-    /// the cache instance. The lifetime `'cache` ties the SlimCommit to this cache.
     ///
     /// # Arguments
     ///
@@ -481,17 +477,17 @@ impl CommitCache {
     ///
     /// # Returns
     ///
-    /// A SlimCommit borrowing data from the cache, or an error if the commit
+    /// A SlimCommit with owned data from the cache, or an error if the commit
     /// is not in the cache
-    pub fn get_slim_commit(&'_ self, object_id: &ObjectId) -> anyhow::Result<SlimCommit<'_>> {
-        let cached = self
-            .commits
+    pub fn get_slim_commit(&self, object_id: &ObjectId) -> anyhow::Result<SlimCommit> {
+        let commits = self.commits.borrow();
+        let cached = commits
             .get(object_id)
             .ok_or_else(|| anyhow::anyhow!("Commit {} not found in cache", object_id))?;
 
         Ok(SlimCommit {
-            oid: &cached.oid,
-            parents: &cached.parents,
+            oid: cached.oid.clone(),
+            parents: cached.parents.clone(),
             timestamp: cached.timestamp,
         })
     }
@@ -507,12 +503,12 @@ impl CommitCache {
     ///
     /// # Returns
     ///
-    /// A SlimCommit borrowing data from the cache
-    pub fn get_or_load_slim_commit<'cache>(
-        &'cache mut self,
+    /// A SlimCommit with owned data from the cache
+    pub fn get_or_load_slim_commit(
+        &self,
         database: &Database,
         object_id: &ObjectId,
-    ) -> anyhow::Result<SlimCommit<'cache>> {
+    ) -> anyhow::Result<SlimCommit> {
         self.load_commit(database, object_id)?;
         self.get_slim_commit(object_id)
     }

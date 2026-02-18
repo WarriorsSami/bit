@@ -183,30 +183,24 @@ impl TryFrom<&str> for Author {
 /// Slim representation of a commit
 ///
 /// Contains only essential information for lightweight operations like merge base finding.
-/// This struct borrows data from a cached commit to avoid redundant allocations and copies
-/// during graph traversal algorithms.
-///
-/// # Lifetime
-///
-/// The lifetime `'c` represents the lifetime of the commit cache from which this data is borrowed.
-/// The borrowed data (oid, parents) must live at least as long as this SlimCommit instance.
+/// This struct owns its data to allow for lazy loading from a cache with interior mutability.
 #[derive(Debug, Clone, Eq, PartialEq)]
-pub struct SlimCommit<'c> {
-    /// Reference to the commit's object ID from the cache
-    pub oid: &'c ObjectId,
-    /// Reference to the commit's parent object IDs from the cache
-    pub parents: &'c [ObjectId],
-    /// Commit timestamp (owned, as it's needed for comparison)
+pub struct SlimCommit {
+    /// The commit's object ID
+    pub oid: ObjectId,
+    /// The commit's parent object IDs
+    pub parents: Vec<ObjectId>,
+    /// Commit timestamp (needed for comparison)
     pub timestamp: chrono::DateTime<chrono::FixedOffset>,
 }
 
-impl<'c> PartialOrd for SlimCommit<'c> {
+impl PartialOrd for SlimCommit {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl<'c> Ord for SlimCommit<'c> {
+impl Ord for SlimCommit {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.timestamp.cmp(&other.timestamp)
     }
@@ -225,8 +219,8 @@ impl<'c> Ord for SlimCommit<'c> {
 /// - Commit message
 #[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Commit {
-    /// Parent commit ID (None for initial commit)
-    parent: Option<ObjectId>,
+    /// Parent commit IDs (empty for initial commit, multiple for merge commits)
+    parents: Vec<ObjectId>,
     /// Tree object ID representing the directory snapshot
     tree_oid: ObjectId,
     /// Author who wrote the changes
@@ -247,13 +241,13 @@ impl Commit {
     /// * `author` - Author (also used as committer)
     /// * `message` - Commit message
     pub fn new(
-        parent: Option<ObjectId>,
+        parents: Vec<ObjectId>,
         tree_oid: ObjectId,
         author: Author,
         message: String,
     ) -> Self {
         Commit {
-            parent,
+            parents,
             tree_oid,
             author: author.clone(),
             committer: author,
@@ -279,7 +273,7 @@ impl Commit {
     }
 
     pub fn parent(&self) -> Option<&ObjectId> {
-        self.parent.as_ref()
+        self.parents.first()
     }
 
     pub fn author(&self) -> &Author {
@@ -296,7 +290,7 @@ impl Packable for Commit {
         let mut object_content = vec![];
 
         object_content.push(format!("tree {}", self.tree_oid.as_ref()));
-        if let Some(parent) = &self.parent {
+        for parent in &self.parents {
             object_content.push(format!("parent {}", parent.as_ref()));
         }
         object_content.push(format!("author {}", self.author.display()));
@@ -336,25 +330,25 @@ impl Unpackable for Commit {
             .to_string();
         let tree_oid = ObjectId::try_parse(tree_oid)?;
 
-        let parent_line = lines
+        // Parse all parent lines (there can be 0, 1, or multiple parents)
+        let mut parents = Vec::new();
+        let mut next_line = lines
             .next()
-            .context("Invalid commit object: missing parent line")?;
-        let parent = if parent_line.starts_with("parent ") {
-            Some(ObjectId::try_parse(
-                parent_line.strip_prefix("parent ").unwrap().to_string(),
-            )?)
-        } else {
-            None
-        };
+            .context("Invalid commit object: missing author line")?;
 
-        let author_line = if parent.is_some() {
-            lines
+        while next_line.starts_with("parent ") {
+            let parent_oid = next_line
+                .strip_prefix("parent ")
+                .context("Invalid commit object: invalid parent line")?;
+            parents.push(ObjectId::try_parse(parent_oid.to_string())?);
+
+            next_line = lines
                 .next()
-                .context("Invalid commit object: missing author line")?
-        } else {
-            parent_line
-        };
-        let author = author_line
+                .context("Invalid commit object: missing author line")?;
+        }
+
+        // At this point, next_line should be the author line
+        let author = next_line
             .strip_prefix("author ")
             .context("Invalid commit object: invalid author line")?;
         let author = Author::try_from(author)?;
@@ -371,7 +365,7 @@ impl Unpackable for Commit {
         lines.next();
 
         let message = lines.collect::<Vec<&str>>().join("\n");
-        Ok(Self::new(parent, tree_oid, author, message))
+        Ok(Self::new(parents, tree_oid, author, message))
     }
 }
 
@@ -384,7 +378,7 @@ impl Object for Commit {
         let mut lines = vec![];
 
         lines.push(format!("tree {}", self.tree_oid.as_ref()));
-        if let Some(parent) = &self.parent {
+        for parent in &self.parents {
             lines.push(format!("parent {}", parent.as_ref()));
         }
         lines.push(format!("author {}", self.author.display()));

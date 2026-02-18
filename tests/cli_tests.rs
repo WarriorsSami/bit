@@ -15,4 +15,5 @@ mod hash_object;
 mod init;
 mod log;
 mod ls_tree;
+mod merge;
 mod status;
