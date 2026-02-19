@@ -2,6 +2,9 @@
 
 This file defines how AI coding agents should operate in this repository.
 
+Agents must not assume a specific LLM model.
+They rely on behavior contracts, not model capabilities.
+
 ## Objective
 
 Deliver correct, incremental improvements to `bit`, a Rust implementation of Git internals inspired by James Coglan’s *Building Git from Scratch*, while preserving domain invariants and test rigor.
