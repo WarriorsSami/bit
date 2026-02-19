@@ -1,314 +1,281 @@
 # Bit - Just a lil' bit of Git in Rust
 
-A simple Git implementation written in Rust, based on the book ["Building Your Own Git"](https://shop.jcoglan.com/building-git/) by James Coglan. This project demonstrates the core concepts and internal workings of Git by implementing its fundamental features from scratch.
+A Git implementation written in Rust, inspired by James Coglan’s book ["Building Your Own Git"](https://shop.jcoglan.com/building-git/). `bit` is intentionally educational, but it is built with production-style engineering discipline: explicit domain modeling, invariant-driven design, and a strong test suite.
 
 ## Overview
 
-`bit` is an educational Git clone that implements the essential version control functionality of Git. It provides a subset of Git commands including repository initialization, object hashing, file staging, and committing. The project is designed to help understand how Git works under the hood by implementing its core data structures and algorithms.
+`bit` models Git as interactions between four core areas:
 
-### Implemented Features
+- **Object database** (`.git/objects`): immutable content-addressed objects.
+- **Index** (`.git/index`): staging-area metadata and next-tree blueprint.
+- **References** (`.git/HEAD`, `refs/*`): symbolic and direct pointers into history.
+- **Workspace**: mutable files checked out for editing.
 
-- **Repository initialization** (`bit init`) - Create a new Git repository
-- **Object hashing** (`bit hash-object`) - Hash files and store them in the object database
-- **Tree listing** (`bit ls-tree`) - List the contents of tree objects
-- **File staging** (`bit add`) - Add files to the index (staging area)
-- **Committing** (`bit commit`) - Create commits from staged changes
-- **Status** (`bit status`) - Show the working tree status with staged, unstaged, and untracked files
-- **Diff** (`bit diff`) - Show changes between commits, commit and working tree, or index
-- **Branch management** (`bit branch`) - Create, list, and delete branches
-- **Checkout** (`bit checkout`) - Switch branches or restore working tree files
-- **Log** (`bit log`) - Show commit history with various formatting options
+Most command behavior can be reasoned about as transitions across these areas.
+
+## Implemented Commands
+
+- ✅ `bit init`
+- ✅ `bit hash-object`
+- ✅ `bit ls-tree`
+- ✅ `bit add`
+- ✅ `bit commit`
+- ✅ `bit status`
+- ✅ `bit diff`
+- ✅ `bit branch` (create/list/delete)
+- ✅ `bit checkout`
+- ✅ `bit log`
+- ✅ `bit merge` (multi-scenario DAG merges, conflict-aware behavior)
+
+## Domain Models and Invariants
+
+### 1) Object model
+- Supports Git object categories needed by current commands (blob/tree/commit flows).
+- Serialization follows Git format: `<type> <size>\0<content>`.
+- Object IDs are SHA-1 of serialized object bytes.
+- Objects are immutable once written.
+
+### 2) Index model
+- Entries are deterministically ordered.
+- Header entry count reflects serialized entries.
+- Index checksum verifies integrity.
+- Parent/child path conflicts are normalized when replacing file/dir shapes.
+- Index read/write uses locking semantics to maintain consistency under concurrent operations.
+
+### 3) Revision + refs model
+- Branch and revision parsing supports common forms (`ref`, `^`, `~n`, aliases).
+- Branch name validation follows Git-like constraints and explicit parser rules.
+- HEAD and refs are managed as first-class repository state.
+
+### 4) Merge and graph model
+- Merge behavior is validated on multiple non-trivial commit DAGs.
+- Best common ancestor scenarios and branching edge-cases are covered by integration tests.
+
+
+### 5) Diff and patch model
+- Diff endpoints are explicit (`workspace↔index`, `index↔HEAD`, `rev↔rev`).
+- File-level status (`A`,`D`,`M`, mode-only changes) is deterministic.
+- Patch hunks should remain stable in ordering and context output semantics.
+
+### 6) Log traversal model
+- Traversal honors included and excluded revision expressions.
+- Commit output ordering should be deterministic, including tie-breaking for identical timestamps.
+- Decorations are a read-only projection of current refs over commits.
+
+### 7) Checkout migration model
+- Checkout is a controlled migration between revisions across refs, index, and workspace.
+- Safety checks should prevent silent clobbering of local/staged work.
+- Success means workspace/index are synchronized to target tree semantics.
+
+### 8) Core algorithms and data structures
+- **Merkle DAG** for commit/history integrity and reachability.
+- **Tree/index path hierarchy (trie-like)** for parent/child path operations.
+- **Revision AST** to represent references, parent (`^`), ancestor (`~n`), ranges, and exclusions.
+- **Myers-style diff baseline** for minimal edit script patch construction (future enhancements may refine heuristics).
+- **Binary codec discipline** for future wire protocol framing and pack parsing.
+
+## Rust Engineering Practices
+
+This project emphasizes:
+
+- idiomatic ownership and borrowing,
+- explicit `Result`-based error handling,
+- deterministic filesystem interaction,
+- lock-aware repository mutations,
+- incremental changes with strong test coverage.
 
 ## Architecture
 
-The project follows a clean architecture pattern with clear separation of concerns:
-
-```
+```text
 src/
 ├── main.rs              # CLI interface and command routing
 ├── commands/            # Command implementations
 │   ├── plumbing/        # Low-level Git commands
-│   │   ├── hash_object.rs # Object hashing
-│   │   └── ls_tree.rs   # Tree listing
-│   └── porcelain/       # High-level user commands
-│       ├── add.rs       # File staging
-│       ├── commit.rs    # Commit creation
-│       ├── status.rs    # Working tree status
-│       ├── diff.rs      # Show changes
-│       ├── branch.rs    # Branch management
-│       ├── checkout.rs  # Switch branches
-│       ├── log.rs       # Commit history
-│       └── init.rs      # Repository initialization
-├── areas/               # Git's main areas
-│   ├── database.rs      # Object database
-│   ├── index.rs         # Staging area (index)
-│   ├── refs.rs          # Reference management
-│   ├── repository.rs    # Repository operations
-│   └── workspace.rs     # Working directory
-└── artifacts/           # Git artifacts and data structures
-    ├── objects/         # Git object types
-    │   ├── blob.rs      # File content objects
-    │   ├── commit.rs    # Commit objects
-    │   ├── tree.rs      # Directory tree objects
-    │   ├── object_id.rs # SHA-1 identifiers
-    │   └── index_entry.rs # Index entry representation
-    ├── branch/          # Branch-related structures
-    ├── checkout/        # Checkout operations
-    ├── database/        # Database structures
-    ├── diff/            # Diff algorithms and output
-    ├── index/           # Index structures
-    └── status/          # Status information
+│   └── porcelain/       # User-facing commands
+├── areas/               # Repository areas: database/index/refs/workspace
+└── artifacts/           # Domain objects and algorithms (objects, diff, merge, log, status)
 ```
-
-### Key Components
-
-- **Repository**: Central coordinator that manages all Git operations
-- **Database**: Handles object storage and retrieval using SHA-1 hashing
-- **Index**: Manages the staging area where changes are prepared for commits
-- **Workspace**: Interfaces with the working directory and file system
-- **Objects**: Implements Git's object model (blobs, trees, commits)
 
 ## How to Run Locally
 
 ### Prerequisites
 
-- Rust 1.88 or later
-- Cargo (comes with Rust)
+- Rust 1.93 or later
+- Cargo
 
-### Installation
+### Build
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd bit
-   ```
-
-2. Build the project:
-   ```bash
-   cargo build --release
-   ```
-
-3. The binary will be available at `target/release/bit`
-
-### Usage
-
-Initialize a new repository:
 ```bash
-./target/release/bit init [path]
+cargo build --release
 ```
 
-Hash a file and optionally write it to the object database:
+Binary path:
+
 ```bash
-./target/release/bit hash-object [-w] <file>
+target/release/bit
 ```
 
-List the contents of a tree object:
+## Usage
+
 ```bash
-./target/release/bit ls-tree [-r] <tree-sha>
+# initialize repository
+bit init [path]
+
+# write or hash objects
+bit hash-object [-w] <file>
+bit ls-tree [-r] <tree-sha>
+
+# staging + commits
+bit add <path>...
+bit commit -m "message"
+
+# inspect state
+bit status [--porcelain]
+bit diff [--cached] [--name-status] [--diff-filter=ADMR] [old] [new]
+bit log [targets...] [-- --paths] [--oneline] [--abbrev-commit] [--decorate=<none|short|full>] [--patch]
+
+# branch / checkout / merge
+bit branch create <name> [source]
+bit branch list [-v]
+bit branch delete <name>... [-f]
+bit checkout <target-revision>
+bit merge <target-revision> -m "merge message"
 ```
 
-Stage files for commit:
+## Testing
+
+The test suite combines unit, property-based, and integration tests to validate Git semantics.
+
+### Environment setup
+
 ```bash
-./target/release/bit add <file1> [file2] ...
+mkdir -p ../playground
 ```
 
-Create a commit:
-```bash
-./target/release/bit commit -m "commit message"
-```
+### Run tests
 
-Show working tree status:
-```bash
-./target/release/bit status [--porcelain]
-```
-
-Show changes:
-```bash
-# Show changes in working directory
-./target/release/bit diff
-
-# Show changes in staging area (index vs HEAD)
-./target/release/bit diff --cached
-
-# Show only file names and status
-./target/release/bit diff --name-status
-
-# Compare two commits
-./target/release/bit diff <commit-a> <commit-b>
-
-# Filter by file status (A=added, D=deleted, M=modified)
-./target/release/bit diff --diff-filter=AD <commit-a> <commit-b>
-```
-
-Manage branches:
-```bash
-# Create a new branch
-./target/release/bit branch create <branch-name> [source-revision]
-
-# List all branches
-./target/release/bit branch list [-v]
-
-# Delete branches
-./target/release/bit branch delete <branch-name> [branch-name2...] [-f]
-```
-
-Switch branches or restore files:
-```bash
-./target/release/bit checkout <target-revision>
-```
-
-View commit history:
-```bash
-# Show commit history
-./target/release/bit log
-
-# Show in oneline format
-./target/release/bit log --oneline
-
-# Show abbreviated commit hashes
-./target/release/bit log --abbrev-commit
-
-# Control decoration display (none, short, full)
-./target/release/bit log --decorate=short
-
-# Combine options
-./target/release/bit log --oneline --abbrev-commit --decorate=none
-```
-
-## How to Run Tests
-
-The project includes comprehensive integration and unit tests that verify compatibility with Git's behavior.
-
-### Test Configuration
-
-**Important**: Before running tests, you need to configure the temporary directory path:
-
-1. Set the `TMPDIR` environment variable or ensure the default `../playground` directory exists:
-   ```bash
-   mkdir -p ../playground
-   ```
-
-2. The tests use a custom temporary directory (`../playground`) instead of the system default to avoid conflicts and provide consistent test environments.
-
-### Running Tests
-
-Run all tests:
 ```bash
 cargo test
-```
-
-Run specific test modules:
-```bash
-# Test repository initialization
-cargo test init
-
-# Test add command
-cargo test add
-
-# Test commit operations  
-cargo test commit
-
-# Test status command
-cargo test status
-
-# Test diff operations
-cargo test diff
-
-# Test branch operations
-cargo test branch
-
-# Test checkout operations
-cargo test checkout
-
-# Test log command
-cargo test log
-```
-
-Run tests with output:
-```bash
 cargo test -- --nocapture
 ```
 
-### Test Features
+Targeted examples:
 
-The test suite includes:
+```bash
+cargo test add
+cargo test commit
+cargo test diff
+cargo test log
+cargo test merge
+```
 
-- **Integration tests** that verify command-line interface behavior
-- **End-to-end tests** for complex workflows (checkout with conflicts, branch operations, etc.)
-- **Diff algorithm tests** including hunk generation and various diff scenarios
-- **Property-based tests** using `proptest` for revision parsing and other operations
-- **Concurrent operation tests** for index locking and consistency
-- **Compatibility tests** that verify output matches Git's behavior
-- **Custom fixtures** for setting up repository states across multiple commits and branches
+## Testing Strategy (TDD + Coglan-style semantics)
 
-## Roadmap
+### TDD loop
+1. Write a failing test from behavior/spec.
+2. Implement minimum code to pass.
+3. Refactor while preserving green tests.
 
-### Current Status
-- ✅ Repository initialization
-- ✅ Object hashing and storage
-- ✅ File staging (add command with comprehensive index management)
-- ✅ Commit creation with proper tree generation
-- ✅ Tree listing and traversal
-- ✅ Status command with staged, unstaged, and untracked files
-- ✅ Diff command with hunks, cached mode, and commit comparison
-- ✅ Branch creation, listing, and deletion
-- ✅ Checkout with conflict detection
-- ✅ Log command with multiple format options and decorations
-- ✅ Index file format fully compatible with Git
-- ✅ Symbolic references (HEAD, branches) 
+### Unit tests
+Use for pure logic and parsers:
+- revision syntax,
+- branch-name validation,
+- object payload formatting/parsing,
+- small deterministic transforms.
 
-### Planned Features
+### Property tests (`proptest`)
+Use for invariant-heavy behavior:
+- valid/invalid revision and branch grammar,
+- parser determinism,
+- boundary input spaces.
 
-#### Short Term
-- [ ] Advanced merge operations
-- [ ] Conflict resolution during merge
-- [ ] Interactive staging (add -p)
-- [ ] Stash functionality
-- [ ] Cherry-pick operations
+Store generated failing cases in `proptest-regressions/` when applicable.
 
-#### Medium Term
-- [ ] Remote repository support
-- [ ] Clone command
-- [ ] Push/pull operations
-- [ ] Tag management (lightweight and annotated)
-- [ ] Git hooks system
-- [ ] Reflog for tracking reference changes
+### Integration tests
+Use command-level scenarios under `tests/`:
+- compare command output and state transitions,
+- cover merge graph topologies,
+- validate index/workspace/ref interactions,
+- compare against `git` where practical.
 
-#### Long Term
-- [ ] Pack files for efficient storage
-- [ ] Delta compression
-- [ ] Rebase operations (interactive and standard)
-- [ ] Submodule support
-- [ ] Worktree support
-- [ ] Performance optimizations for large repositories
-- [ ] Garbage collection
 
-### Known Limitations
+### Merge / diff / log invariant tests to prioritize
+- **Merge**: fast-forward eligibility, criss-cross BCAs, multi-parent lineage ordering, conflict marker persistence.
+- **Diff**: endpoint correctness, mode-only changes, multi-file hunk stability, deterministic status ordering.
+- **Log**: include/exclude revision expressions, path-filtered history, stable ordering with timestamp ties, decoration rendering variants.
 
-- No networking support (clone, push, pull)
-- Limited merge capabilities (no three-way merge yet)
-- No pack file support (all objects stored loose)
-- No reflog tracking
-- No git hooks
-- No interactive features (interactive add, rebase, etc.)
+### Remote + pack tests (future)
+- pkt-line codec round-trips and malformed-frame rejection.
+- negotiation state-machine tests for `want/have/ack` flows.
+- pack decoding tests for full objects and chained deltas.
+- object-integrity checks after unpack + write.
+
+## Roadmap aligned with *Building Git from Scratch*
+
+> The roadmap is organized by domain themes that mirror the book’s progression from low-level object mechanics to higher-level collaboration/storage concerns.
+
+### A. Object storage and plumbing
+- [x] Initialize repository structure
+- [x] Hash/write loose objects
+- [x] Read/tree-walk object structures
+- [ ] Additional plumbing introspection and validation commands
+
+### B. Index and snapshot construction
+- [x] Stage files and directory trees
+- [x] Handle file/dir replacement conflicts
+- [x] Persist and validate index metadata/checksum
+- [ ] Interactive staging (`add -p`)
+
+### C. Commit graph and history traversal
+- [x] Write commits and parent relationships
+- [x] Traverse history for `log`
+- [x] Revision expressions and branch-based targeting
+- [ ] Extended ancestry/query expressions parity
+
+### D. Workspace inspection and patching
+- [x] `status` for staged/unstaged/untracked states
+- [x] `diff` for workspace/index/commit comparisons
+- [x] Patch-oriented log output
+- [ ] More advanced diff heuristics and rename/copy tracking
+
+### E. Branching, checkout, merge
+- [x] Branch create/list/delete
+- [x] Checkout with ref/symbolic-ref behavior
+- [x] Merge for complex DAG scenarios (including multi-BCA patterns)
+- [ ] More complete conflict resolution UX
+- [ ] Rebase/cherry-pick workflows
+
+### F. Remotes and packed storage
+- [ ] Clone/fetch/push/pull protocols
+- [ ] Packfiles and delta compression
+- [ ] Reflog, hooks, and GC lifecycle tooling
+
+
+#### Remote flow and pack protocol (expanded)
+- **Transport handshake/capabilities**: model protocol v2 style negotiation (capabilities, command selection, shallow/filter options where relevant).
+- **Object negotiation**: exchange `want`/`have` sets and ACK states to minimize transfer.
+- **Pack stream framing**: use pkt-line length-prefixed binary records with flush/delim packets.
+- **Pack data model**: support object entry headers, base/delta representations (`OFS_DELTA`, `REF_DELTA`), and integrity verification at stream/repo boundaries.
+- **Apply/delta pipeline**: decode + resolve base chains + reconstruct canonical objects before persistence.
+- **Safety invariants**: never accept malformed framing/checksums silently; keep object graph/hash checks explicit.
+
+## Known Gaps
+
+- No remote/network protocol support yet.
+- Packed object storage and delta compression are not implemented.
+- History-rewriting workflows (rebase/cherry-pick) are pending.
+- Merge UX can be improved for richer conflict presentation/resolution workflows.
 
 ## Contributing
 
-This project is primarily educational, but contributions are welcome! Please:
-
-1. Fork the repository
-2. Create a feature branch
-3. Add tests for new functionality
-4. Ensure all tests pass
-5. Submit a pull request
-
-## License
-
-This project is based on ["Building Your Own Git"](https://shop.jcoglan.com/building-git/) by James Coglan and is intended for educational purposes.
+1. Start from a failing test.
+2. Implement minimally.
+3. Keep changes small and focused.
+4. Ensure formatting and tests pass.
+5. Update README/instructions if behavior changes.
 
 ## Acknowledgments
 
-- James Coglan for the excellent "Building Your Own Git" book
-- The Git project for the reference implementation
-- The Rust community for excellent tooling and libraries
-
+- James Coglan for *Building Your Own Git*.
+- The Git project for behavioral reference.
+- The Rust ecosystem for excellent tooling.
