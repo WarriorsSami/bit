@@ -1,6 +1,6 @@
 use crate::areas::repository::Repository;
 use crate::artifacts::branch::branch_name::BranchName;
-use crate::artifacts::branch::{ANCESTOR_REGEX, PARENT_REGEX, REF_ALIASES};
+use crate::artifacts::branch::{ANCESTOR_REGEX, NTH_PARENT_REGEX, PARENT_REGEX, REF_ALIASES};
 use crate::artifacts::objects::OBJECT_ID_LENGTH;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::object_type::ObjectType;
@@ -13,8 +13,9 @@ use anyhow::Context;
 /// - Aliases: `@` (resolves to `HEAD`)
 /// - Full OIDs: 40-character hexadecimal strings (resolved as fallback if ref doesn't exist)
 /// - Abbreviated OIDs: 4-40 character hexadecimal strings (resolved as fallback if ref doesn't exist)
-/// - Parent notation: `<revision>^` (e.g., `main^`, `HEAD^`, `abc123^`)
-/// - Ancestor notation: `<revision>~<n>` (e.g., `main~3`, `HEAD~5`, `abc123~2`)
+/// - First parent notation: `<revision>^` (e.g., `main^`, `HEAD^`) - equivalent to `^1`
+/// - Nth parent notation: `<revision>^<n>` (e.g., `main^2`, `HEAD^3`) - for merge commits
+/// - Ancestor notation: `<revision>~<n>` (e.g., `main~3`, `HEAD~5`) - follows first parent
 ///
 /// # Parsing Strategy
 ///
@@ -22,6 +23,13 @@ use anyhow::Context;
 /// if no ref with that name exists and the string looks like an OID (4-40 hex characters),
 /// the resolver will attempt to resolve it as an object ID. This matches Git's behavior of
 /// preferring refs over OIDs when there's ambiguity.
+///
+/// # Parent Notation
+///
+/// - `<rev>^` or `<rev>^1` - First parent (for all commits)
+/// - `<rev>^2` - Second parent (for merge commits)
+/// - `<rev>^3` - Third parent (for octopus merges)
+/// - `<rev>~<n>` - Equivalent to `<rev>^1^1...^1` (n times, follows first parent)
 ///
 /// # Examples
 ///
@@ -32,11 +40,15 @@ use anyhow::Context;
 /// // Parse what might be an OID (initially treated as Ref, resolved as OID if ref doesn't exist)
 /// let rev = RevisionContext::parse("abc123")?;
 ///
-/// // Parse with parent notation
+/// // Parse with first parent notation
 /// let rev = RevisionContext::parse("main^")?;
-/// let rev = RevisionContext::parse("abc123^")?;
+/// let rev = RevisionContext::parse("main^1")?;  // Equivalent to main^
 ///
-/// // Parse with ancestor notation
+/// // Parse with Nth parent notation (for merge commits)
+/// let rev = RevisionContext::parse("main^2")?;
+/// let rev = RevisionContext::parse("HEAD^3")?;
+///
+/// // Parse with ancestor notation (follows first parent)
 /// let rev = RevisionContext::parse("main~3")?;
 /// let rev = RevisionContext::parse("abc123~2")?;
 /// ```
@@ -44,10 +56,12 @@ use anyhow::Context;
 pub enum Revision {
     /// A reference to a branch, symbolic ref, or potentially an OID (resolved during resolution phase)
     Ref(BranchName),
-    /// The Nth ancestor of a revision (e.g., HEAD~3)
+    /// The Nth ancestor of a revision (e.g., HEAD~3) - follows first parent
     Ancestor(Box<Revision>, usize),
-    /// The parent of a revision (e.g., HEAD^)
+    /// The first parent of a revision (e.g., HEAD^) - equivalent to NthParent(_, 1)
     Parent(Box<Revision>),
+    /// The Nth parent of a revision (e.g., HEAD^2 for second parent in merge commit)
+    NthParent(Box<Revision>, usize),
 }
 
 impl Revision {
@@ -79,12 +93,15 @@ impl Revision {
                 }
             }
             Revision::Parent(base_revision) => {
-                Self::resolve_commit_parent(base_revision.resolve(repository)?, repository)
+                Self::resolve_commit_parent(base_revision.resolve(repository)?, repository, 1)
+            }
+            Revision::NthParent(base_revision, n) => {
+                Self::resolve_commit_parent(base_revision.resolve(repository)?, repository, *n)
             }
             Revision::Ancestor(base_revision, generations) => {
                 let mut oid = base_revision.resolve(repository)?;
                 for _ in 0..*generations {
-                    oid = Self::resolve_commit_parent(oid, repository)?;
+                    oid = Self::resolve_commit_parent(oid, repository, 1)?;
                 }
 
                 Ok(oid)
@@ -95,14 +112,30 @@ impl Revision {
     fn resolve_commit_parent(
         oid: Option<ObjectId>,
         repository: &Repository,
+        n: usize,
     ) -> anyhow::Result<Option<ObjectId>> {
         if let Some(oid) = oid {
             let commit = repository
                 .database()
                 .parse_object_as_commit(&oid)?
                 .ok_or_else(|| anyhow::anyhow!("object {} is not a commit", oid))?;
-            let parent_oid = commit.parent().cloned();
 
+            // Get the nth parent (1-indexed)
+            if n == 0 {
+                anyhow::bail!("parent index must be at least 1");
+            }
+
+            let parents = commit.parents();
+            if n > parents.len() {
+                anyhow::bail!(
+                    "commit {} has only {} parent(s), cannot get parent {}",
+                    oid,
+                    parents.len(),
+                    n
+                );
+            }
+
+            let parent_oid = parents.get(n - 1).cloned();
             Ok(parent_oid)
         } else {
             Ok(None)
@@ -189,7 +222,29 @@ impl Revision {
     }
 
     pub fn try_parse(revision: &str) -> anyhow::Result<Revision> {
-        if regex::Regex::new(PARENT_REGEX)
+        // Check for ^<n> pattern first (before checking for ^)
+        if regex::Regex::new(NTH_PARENT_REGEX)
+            .with_context(|| format!("invalid nth parent regex: {NTH_PARENT_REGEX}"))?
+            .is_match(revision)
+        {
+            let caps = regex::Regex::new(NTH_PARENT_REGEX)
+                .with_context(|| format!("invalid nth parent regex: {NTH_PARENT_REGEX}"))?
+                .captures(revision)
+                .with_context(|| format!("failed to parse revision: {revision}"))?;
+
+            let base_rev = &caps[1];
+            let n: usize = caps[2].parse().with_context(|| {
+                format!("failed to parse parent number in revision: {revision}")
+            })?;
+
+            if n == 0 {
+                anyhow::bail!("parent index must be at least 1");
+            }
+
+            let base_revision = Self::try_parse(base_rev)?;
+
+            Ok(Revision::NthParent(Box::new(base_revision), n))
+        } else if regex::Regex::new(PARENT_REGEX)
             .with_context(|| format!("invalid parent regex: {PARENT_REGEX}"))?
             .is_match(revision)
         {
@@ -271,6 +326,130 @@ mod tests {
         } else {
             panic!("Expected Parent variant");
         }
+    }
+
+    #[test]
+    fn test_parse_first_parent_explicit() {
+        let result = Revision::try_parse("main^1").unwrap();
+        if let Revision::NthParent(base, n) = result {
+            assert_eq!(n, 1);
+            if let Revision::Ref(name) = *base {
+                assert_eq!(name.as_ref(), "main");
+            } else {
+                panic!("Expected Ref variant in nth parent");
+            }
+        } else {
+            panic!("Expected NthParent variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_second_parent() {
+        let result = Revision::try_parse("main^2").unwrap();
+        if let Revision::NthParent(base, n) = result {
+            assert_eq!(n, 2);
+            if let Revision::Ref(name) = *base {
+                assert_eq!(name.as_ref(), "main");
+            } else {
+                panic!("Expected Ref variant in nth parent");
+            }
+        } else {
+            panic!("Expected NthParent variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_third_parent() {
+        let result = Revision::try_parse("main^3").unwrap();
+        if let Revision::NthParent(base, n) = result {
+            assert_eq!(n, 3);
+            if let Revision::Ref(name) = *base {
+                assert_eq!(name.as_ref(), "main");
+            } else {
+                panic!("Expected Ref variant in nth parent");
+            }
+        } else {
+            panic!("Expected NthParent variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_nth_parent_zero_fails() {
+        let result = Revision::try_parse("main^0");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("parent index must be at least 1")
+        );
+    }
+
+    #[test]
+    fn test_parse_nth_parent_large_number() {
+        let result = Revision::try_parse("main^10").unwrap();
+        if let Revision::NthParent(base, n) = result {
+            assert_eq!(n, 10);
+            if let Revision::Ref(name) = *base {
+                assert_eq!(name.as_ref(), "main");
+            } else {
+                panic!("Expected Ref variant in nth parent");
+            }
+        } else {
+            panic!("Expected NthParent variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_nested_nth_parent() {
+        let result = Revision::try_parse("main^2^1").unwrap();
+        // Should be NthParent(NthParent(Ref("main"), 2), 1)
+        if let Revision::NthParent(first_parent, n1) = result {
+            assert_eq!(n1, 1);
+            if let Revision::NthParent(second_parent, n2) = *first_parent {
+                assert_eq!(n2, 2);
+                if let Revision::Ref(name) = *second_parent {
+                    assert_eq!(name.as_ref(), "main");
+                } else {
+                    panic!("Expected Ref at the innermost level");
+                }
+            } else {
+                panic!("Expected second NthParent variant");
+            }
+        } else {
+            panic!("Expected first NthParent variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_mixed_parent_notations() {
+        // main^2^ should parse as Parent(NthParent(Ref("main"), 2))
+        let result = Revision::try_parse("main^2^").unwrap();
+        if let Revision::Parent(base) = result {
+            if let Revision::NthParent(inner_base, n) = *base {
+                assert_eq!(n, 2);
+                if let Revision::Ref(name) = *inner_base {
+                    assert_eq!(name.as_ref(), "main");
+                } else {
+                    panic!("Expected Ref variant");
+                }
+            } else {
+                panic!("Expected NthParent variant");
+            }
+        } else {
+            panic!("Expected Parent variant");
+        }
+    }
+
+    #[test]
+    fn test_parse_parent_equivalent_to_parent_1() {
+        // main^ and main^1 should be different variants but equivalent in meaning
+        let parent_result = Revision::try_parse("main^").unwrap();
+        let nth_parent_result = Revision::try_parse("main^1").unwrap();
+
+        // They should parse differently
+        assert!(matches!(parent_result, Revision::Parent(_)));
+        assert!(matches!(nth_parent_result, Revision::NthParent(_, 1)));
     }
 
     #[test]
@@ -551,6 +730,28 @@ mod tests {
                 }
             } else {
                 prop_assert!(false, "Expected Parent variant");
+            }
+        }
+
+        #[test]
+        fn prop_nth_parent_suffix_creates_nth_parent_revision(
+            name in valid_branch_name_strategy(),
+            n in 1usize..20
+        ) {
+            let revision_str = format!("{}^{}", name, n);
+            let result = Revision::try_parse(&revision_str);
+            prop_assert!(result.is_ok());
+            let parsed = result.unwrap();
+
+            if let Revision::NthParent(base, parent_n) = parsed {
+                prop_assert_eq!(parent_n, n);
+                if let Revision::Ref(base_name) = *base {
+                    prop_assert_eq!(base_name.as_ref(), &name);
+                } else {
+                    prop_assert!(false, "Expected Ref variant in nth parent");
+                }
+            } else {
+                prop_assert!(false, "Expected NthParent variant");
             }
         }
 
