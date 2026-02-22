@@ -276,6 +276,14 @@ impl Commit {
         self.parents.first()
     }
 
+    pub fn parents(&self) -> &[ObjectId] {
+        &self.parents
+    }
+
+    pub fn is_merge_commit(&self) -> bool {
+        self.parents.len() > 1
+    }
+
     pub fn author(&self) -> &Author {
         &self.author
     }

@@ -155,7 +155,7 @@ impl Repository {
         commits_diffs: Option<&CommitsDiffs>,
         patch: bool,
     ) -> anyhow::Result<()> {
-        if !patch {
+        if !patch || commit.is_merge_commit() {
             return Ok(());
         }
 

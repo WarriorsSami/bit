@@ -33,7 +33,7 @@ use crate::artifacts::objects::object::Object;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::commands::porcelain::log::LogRevisionTargets;
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
 /// A flag indicating the state of a commit during log traversal.
@@ -307,25 +307,27 @@ impl<'r> RevList<'r> {
     }
 
     fn mark_parents_uninteresting(&mut self, oid: &ObjectId) -> anyhow::Result<()> {
-        let mut commit = if let Some(commit) = self.commits_cache.get(oid) {
+        let commit = if let Some(commit) = self.commits_cache.get(oid) {
             commit
         } else {
             return Ok(());
         };
 
-        while let Some(parent_oid) = commit.parent()
-            && let Some(parent_commit) = self.commits_cache.get(parent_oid)
-        {
+        let mut commits_queue = commit.parents().iter().collect::<VecDeque<_>>();
+
+        while let Some(oid) = commits_queue.pop_front() {
             if !self
                 .commits_flags
-                .entry(parent_oid.clone())
+                .entry(oid.clone())
                 .or_default()
                 .insert(LogTraversalCommitFlag::Uninteresting)
             {
-                break;
+                continue;
             }
 
-            commit = parent_commit;
+            if let Some(commit) = self.commits_cache.get(oid) {
+                commits_queue.extend(commit.parents());
+            }
         }
 
         Ok(())
@@ -378,42 +380,68 @@ impl<'r> RevList<'r> {
             .get(oid)
             .is_some_and(|flags| flags.contains(&LogTraversalCommitFlag::Uninteresting));
 
-        // Load its parent into the cache if not already present and enqueue the parent if found
-        if let Some(parent_oid) = commit.parent() {
-            self.load_commit(parent_oid)?;
+        let parents = if is_uninteresting {
+            commit
+                .parents()
+                .iter()
+                .map(|parent_oid| {
+                    self.load_commit(parent_oid)?;
+                    self.mark_parents_uninteresting(oid)?;
 
-            // Mark parents as uninteresting if this commit is uninteresting
-            if is_uninteresting {
-                self.mark_parents_uninteresting(oid)?;
-            }
+                    Ok(parent_oid)
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        } else {
+            self.simplify_commit(&commit)?
+                .into_iter()
+                .flatten()
+                .map(|parent_oid| {
+                    self.load_commit(parent_oid)?;
 
-            self.enqueue_commit(parent_oid)?;
-        }
+                    Ok(parent_oid)
+                })
+                .collect::<anyhow::Result<Vec<_>>>()?
+        };
 
-        if !is_uninteresting {
-            self.simplify_commit(&commit)?;
-        }
+        parents
+            .into_iter()
+            .try_for_each(|parent_oid| self.enqueue_commit(parent_oid))?;
 
         Ok(())
     }
 
-    fn simplify_commit(&mut self, commit: &Commit) -> anyhow::Result<()> {
+    fn simplify_commit<'a>(
+        &mut self,
+        commit: &'a Commit,
+    ) -> anyhow::Result<Vec<Option<&'a ObjectId>>> {
+        let parents = if commit.parents().is_empty() {
+            vec![None]
+        } else {
+            commit.parents().iter().map(Some).collect()
+        };
+
         if self.interesting_files.is_empty() {
-            return Ok(());
+            return Ok(parents);
         }
 
-        if self
-            .tree_diff(commit.parent(), Some(&commit.object_id()?))?
-            .changes()
-            .is_empty()
-        {
-            self.commits_flags
-                .entry(commit.object_id()?)
-                .or_default()
-                .insert(LogTraversalCommitFlag::TreeSame);
+        let commit_oid = commit.object_id()?;
+
+        for parent in parents.iter() {
+            if self
+                .tree_diff(*parent, Some(&commit_oid))?
+                .changes()
+                .is_empty()
+            {
+                self.commits_flags
+                    .entry(commit_oid.clone())
+                    .or_default()
+                    .insert(LogTraversalCommitFlag::TreeSame);
+
+                return Ok(vec![*parent]);
+            }
         }
 
-        Ok(())
+        Ok(parents)
     }
 
     fn tree_diff(

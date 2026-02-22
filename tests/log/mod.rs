@@ -57,3 +57,12 @@ mod log_filter_by_nested_file_path;
 mod log_filter_commits_by_directory;
 mod log_filter_commits_by_multiple_files;
 mod log_filter_commits_by_single_file;
+
+// Merge commit traversal tests (feature: merge-aware log)
+// Tests proper traversal of ALL parents in merge commits
+mod log_merge_traversal_criss_cross_merge;
+mod log_merge_traversal_diamond_deduplication;
+mod log_merge_traversal_linear_history;
+mod log_merge_traversal_octopus_merge;
+mod log_merge_traversal_sequential_merges;
+mod log_merge_traversal_simple_merge;
