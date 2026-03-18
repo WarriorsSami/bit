@@ -16,13 +16,42 @@ use crate::artifacts::objects::object::{Packable, Unpackable};
 use crate::artifacts::objects::object_id::ObjectId;
 use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
-use derive_new::new;
 use is_executable::IsExecutable;
 use std::cmp::min;
 use std::fs::Metadata;
 use std::io::{BufRead, Write};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{Path, PathBuf};
+
+/// Merge stage for an index entry.
+///
+/// Stored in bits 12-13 of the 16-bit flags word in the binary index format.
+/// Stage 0 means the entry is clean (no conflict); stages 1-3 are the three
+/// sides of an unresolved merge conflict.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+#[repr(u8)]
+pub enum MergeStage {
+    /// Normal tracked file, no conflict
+    #[default]
+    Clean = 0,
+    /// Common ancestor version
+    Base = 1,
+    /// Our version (HEAD)
+    Ours = 2,
+    /// Their version (being merged in)
+    Theirs = 3,
+}
+
+impl From<u8> for MergeStage {
+    fn from(v: u8) -> Self {
+        match v {
+            1 => MergeStage::Base,
+            2 => MergeStage::Ours,
+            3 => MergeStage::Theirs,
+            _ => MergeStage::Clean,
+        }
+    }
+}
 
 /// Maximum path length supported in index entries
 const MAX_PATH_SIZE: usize = 4095;
@@ -38,7 +67,7 @@ pub const ENTRY_MIN_SIZE: usize = 64; // Minimum size of an index entry in bytes
 /// Contains the file path, content hash, and metadata needed for
 /// efficient change detection.
 // TODO: Restrict access to certain fields
-#[derive(Debug, Clone, Default, new)]
+#[derive(Debug, Clone, Default)]
 pub struct IndexEntry {
     /// File path relative to repository root
     pub name: PathBuf,
@@ -46,9 +75,34 @@ pub struct IndexEntry {
     pub oid: ObjectId,
     /// File metadata (mode, size, timestamps)
     pub metadata: EntryMetadata,
+    /// Merge stage (clean, base, ours, or theirs)
+    pub stage: MergeStage,
 }
 
 impl IndexEntry {
+    /// Create a normal (stage-0) index entry for a tracked file
+    pub fn new(name: PathBuf, oid: ObjectId, metadata: EntryMetadata) -> Self {
+        IndexEntry {
+            name,
+            oid,
+            metadata,
+            stage: MergeStage::Clean,
+        }
+    }
+
+    /// Create a conflict-stage index entry with zeroed timestamps (for merge conflicts)
+    pub fn for_conflict(name: PathBuf, oid: ObjectId, mode: EntryMode, stage: MergeStage) -> Self {
+        IndexEntry {
+            name,
+            oid,
+            metadata: EntryMetadata {
+                mode,
+                ..Default::default()
+            },
+            stage,
+        }
+    }
+
     pub fn basename(&self) -> anyhow::Result<&str> {
         self.name
             .file_name()
@@ -86,7 +140,7 @@ impl IndexEntry {
 
 impl PartialEq for IndexEntry {
     fn eq(&self, other: &Self) -> bool {
-        self.name == other.name
+        self.name == other.name && self.stage == other.stage
     }
 }
 
@@ -100,7 +154,9 @@ impl PartialOrd for IndexEntry {
 
 impl Ord for IndexEntry {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.name.cmp(&other.name)
+        self.name
+            .cmp(&other.name)
+            .then(self.stage.cmp(&other.stage))
     }
 }
 
@@ -163,7 +219,10 @@ impl Packable for IndexEntry {
         entry_bytes.write_u32::<byteorder::NetworkEndian>(self.metadata.gid)?;
         entry_bytes.write_u32::<byteorder::NetworkEndian>(self.metadata.size as u32)?;
         self.oid.write_h40_to(&mut entry_bytes)?;
-        entry_bytes.write_u16::<byteorder::NetworkEndian>(self.metadata.flags as u16)?;
+        // Pack stage (bits 12-13) and path length (bits 0-11) into the 16-bit flags field
+        let path_length = min(entry_name.len(), MAX_PATH_SIZE);
+        let packed_flags: u16 = ((self.stage as u8 as u16) << 12) | (path_length as u16 & 0x0FFF);
+        entry_bytes.write_u16::<byteorder::NetworkEndian>(packed_flags)?;
         entry_bytes.write_all(entry_name.as_bytes())?;
 
         // Ensure the entry bytes are padded to ENTRY_BLOCK size with null bytes
@@ -198,7 +257,8 @@ impl Unpackable for IndexEntry {
         let size = byteorder::NetworkEndian::read_u32(&bytes[36..40]) as u64;
         let mut oid_bytes = std::io::Cursor::new(&bytes[40..60]);
         let oid = ObjectId::read_h40_from(&mut oid_bytes)?;
-        let flags = byteorder::NetworkEndian::read_u16(&bytes[60..62]) as u32;
+        let flags_raw = byteorder::NetworkEndian::read_u16(&bytes[60..62]);
+        let stage = MergeStage::from(((flags_raw >> 12) & 0x3) as u8);
 
         // Extract the entry name, which is null-terminated
         let name_end = bytes[62..]
@@ -214,6 +274,7 @@ impl Unpackable for IndexEntry {
         Ok(IndexEntry {
             name,
             oid,
+            stage,
             metadata: EntryMetadata {
                 ctime,
                 ctime_nsec,
@@ -225,7 +286,7 @@ impl Unpackable for IndexEntry {
                 uid,
                 gid,
                 size,
-                flags,
+                flags: 0,
             },
         })
     }
@@ -243,10 +304,6 @@ impl TryFrom<(&Path, Metadata)> for EntryMetadata {
                 false => EntryMode::File(FileMode::Regular),
             }
         };
-        let file_path = file_path
-            .to_str()
-            .ok_or_else(|| anyhow::anyhow!("Invalid file path"))?;
-
         Ok(Self {
             ctime: metadata.ctime(),
             ctime_nsec: metadata.ctime_nsec(),
@@ -258,7 +315,7 @@ impl TryFrom<(&Path, Metadata)> for EntryMetadata {
             uid: metadata.uid(),
             gid: metadata.gid(),
             size: metadata.size(),
-            flags: min(file_path.len(), MAX_PATH_SIZE) as u32,
+            flags: 0,
         })
     }
 }

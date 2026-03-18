@@ -45,10 +45,10 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
 
     // Left side: master branch (A -> B -> D -> E -> H -> J)
 
-    // Commit B
+    // Commit B (left side only adds left-only.txt, does not touch shared.txt)
     write_file(FileSpec::new(
-        dir.path().join("shared.txt"),
-        "A\nB\n".to_string(),
+        dir.path().join("left-only.txt"),
+        "B\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -58,7 +58,7 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
     // Commit D
     write_file(FileSpec::new(
         dir.path().join("left-only.txt"),
-        "D\n".to_string(),
+        "B\nD\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -68,7 +68,7 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
     // Commit E
     write_file(FileSpec::new(
         dir.path().join("left-only.txt"),
-        "D\nE\n".to_string(),
+        "B\nD\nE\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -78,7 +78,7 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
     // Commit H
     write_file(FileSpec::new(
         dir.path().join("left-only.txt"),
-        "D\nE\nH\n".to_string(),
+        "B\nD\nE\nH\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -88,7 +88,7 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
     // Commit J
     write_file(FileSpec::new(
         dir.path().join("left-only.txt"),
-        "D\nE\nH\nJ\n".to_string(),
+        "B\nD\nE\nH\nJ\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -100,10 +100,10 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
         .assert()
         .success();
 
-    // Commit C
+    // Commit C (right side only adds right-only.txt, does not touch shared.txt)
     write_file(FileSpec::new(
-        dir.path().join("shared.txt"),
-        "A\nC\n".to_string(),
+        dir.path().join("right-only.txt"),
+        "C\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -139,7 +139,7 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
     // Commit I
     write_file(FileSpec::new(
         dir.path().join("right-only.txt"),
-        "F\nI\n".to_string(),
+        "C\nF\nI\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -149,7 +149,7 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
     // Commit K
     write_file(FileSpec::new(
         dir.path().join("right-only.txt"),
-        "F\nI\nK\n".to_string(),
+        "C\nF\nI\nK\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -172,12 +172,12 @@ fn merge_complex_branching(repository_dir: TempDir) -> Result<(), Box<dyn std::e
     // Verify content from left branch
     let left_content =
         fs::read_to_string(dir.path().join("left-only.txt")).expect("Failed to read left-only.txt");
-    assert_eq!(left_content, "D\nE\nH\nJ\n");
+    assert_eq!(left_content, "B\nD\nE\nH\nJ\n");
 
     // Verify content from right branch
     let right_content = fs::read_to_string(dir.path().join("right-only.txt"))
         .expect("Failed to read right-only.txt");
-    assert_eq!(right_content, "F\nI\nK\n");
+    assert_eq!(right_content, "C\nF\nI\nK\n");
 
     Ok(())
 }

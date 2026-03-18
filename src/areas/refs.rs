@@ -44,6 +44,9 @@ const SYMREF_REGEX: &str = r"^ref: (.+)$";
 /// Name of the HEAD reference
 pub const HEAD_REF_NAME: &str = "HEAD";
 
+const MERGE_HEAD: &str = "MERGE_HEAD";
+const MERGE_MSG: &str = "MERGE_MSG";
+
 /// Internal representation of a reference value
 ///
 /// Can be either a symbolic reference or a direct object ID.
@@ -121,7 +124,7 @@ impl Refs {
     ///
     /// The final symbolic reference in the chain
     pub fn current_ref(&self, source: Option<SymRefName>) -> anyhow::Result<SymRefName> {
-        let source = source.unwrap_or_else(|| SymRefName::new("HEAD".to_string()));
+        let source = source.unwrap_or_else(|| SymRefName::new(HEAD_REF_NAME.to_string()));
 
         let ref_content =
             SymRefOrOid::read_symref_or_oid(self.path.join(source.as_ref_path()).as_path())?;
@@ -322,6 +325,45 @@ impl Refs {
             self.prune_branch_empty_parent_dirs(parent)?;
         }
 
+        Ok(())
+    }
+
+    pub fn write_merge_head(&self, oid: &ObjectId) -> anyhow::Result<()> {
+        let path = self.path.join(MERGE_HEAD).into_boxed_path();
+        self.update_ref_file(path, oid.as_ref().to_string())
+    }
+
+    pub fn read_merge_head(&self) -> anyhow::Result<Option<ObjectId>> {
+        let path = self.path.join(MERGE_HEAD);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let content = content.trim();
+        if content.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(ObjectId::try_parse(content.to_string())?))
+    }
+
+    pub fn clear_merge_head(&self) -> anyhow::Result<()> {
+        let path = self.path.join(MERGE_HEAD);
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        Ok(())
+    }
+
+    pub fn write_merge_msg(&self, message: &str) -> anyhow::Result<()> {
+        let path = self.path.join(MERGE_MSG).into_boxed_path();
+        self.update_ref_file(path, message.to_string())
+    }
+
+    pub fn clear_merge_msg(&self) -> anyhow::Result<()> {
+        let path = self.path.join(MERGE_MSG);
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
         Ok(())
     }
 

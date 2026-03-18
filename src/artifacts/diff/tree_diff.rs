@@ -158,6 +158,15 @@ impl<'r> TreeDiff<'r> {
         }
     }
 
+    /// Build a TreeDiff from a pre-computed changeset (used to pass a filtered subset
+    /// of changes to Migration without recomputing the full tree diff)
+    pub fn from_changeset(database: &'r Database, change_set: ChangeSet) -> Self {
+        TreeDiff {
+            database,
+            change_set,
+        }
+    }
+
     pub fn changes(&self) -> &ChangeSet {
         &self.change_set
     }

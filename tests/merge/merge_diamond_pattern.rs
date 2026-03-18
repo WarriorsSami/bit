@@ -36,10 +36,10 @@ fn merge_diamond_pattern(repository_dir: TempDir) -> Result<(), Box<dyn std::err
         .assert()
         .success();
 
-    // Commit B on master: Add B line
+    // Commit B on master: add a master-only file (no conflict with left branch)
     write_file(FileSpec::new(
-        dir.path().join("data.txt"),
-        "A\nB\n".to_string(),
+        dir.path().join("data_b.txt"),
+        "B\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -51,10 +51,10 @@ fn merge_diamond_pattern(repository_dir: TempDir) -> Result<(), Box<dyn std::err
         .assert()
         .success();
 
-    // Commit C on left: Add C line
+    // Commit C on left: add a left-only file (no conflict with master)
     write_file(FileSpec::new(
-        dir.path().join("data.txt"),
-        "A\nC\n".to_string(),
+        dir.path().join("data_c.txt"),
+        "C\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -66,18 +66,13 @@ fn merge_diamond_pattern(repository_dir: TempDir) -> Result<(), Box<dyn std::err
         .assert()
         .success();
 
-    // Commit D: Merge left into master
+    // Commit D: Merge left into master — should be clean (no shared file modified)
     bit_merge(dir.path(), "left", "Merge commit D")
         .assert()
         .success();
 
-    // After merge, verify we have the main branch changes
-    // Note: Without conflict resolution, the merge will apply changes from left branch
+    // After merge both branch-specific files should be present
     let content = fs::read_to_string(dir.path().join("data.txt")).expect("Failed to read data.txt");
-
-    // The content should reflect the merged state
-    // In a real scenario with proper merge, this would be "A\nB\nC\n"
-    // but without conflict resolution, it depends on the tree diff application
     assert!(content.contains("A\n"), "Should contain base commit A");
 
     // Create another commit after merge to verify the merge commit works

@@ -163,6 +163,12 @@ impl Workspace {
         Ok(content)
     }
 
+    pub fn write_file(&self, file_path: &Path, content: &[u8]) -> anyhow::Result<()> {
+        let full_path = self.path.join(file_path);
+        std::fs::write(full_path, content)?;
+        Ok(())
+    }
+
     pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMetadata> {
         let metadata = std::fs::metadata(self.path.join(file_path))?;
 

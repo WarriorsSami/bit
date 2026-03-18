@@ -83,25 +83,11 @@
 
 use crate::artifacts::objects::commit::SlimCommit;
 use crate::artifacts::objects::object_id::ObjectId;
+use crate::debug_log;
 use bitflags::bitflags;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
-
-/// Macro for debug logging that is enabled in test mode or with the debug_merge feature flag
-///
-/// # Usage
-/// ```rust,ignore
-/// debug_log!("Processing commit {}", commit_id);
-/// ```
-macro_rules! debug_log {
-    ($($arg:tt)*) => {
-        #[cfg(any(feature = "debug_merge"))]
-        {
-            eprintln!($($arg)*);
-        }
-    };
-}
 
 bitflags! {
     #[derive(Clone, Copy, PartialEq, Eq, Hash)]

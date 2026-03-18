@@ -12,12 +12,12 @@
 //!
 //! ## Data Structures
 //!
-//! - `entries`: Maps file paths to their index entries
+//! - `entries`: Maps (file path, stage) to their index entries
 //! - `children`: Maps directory paths to their children for efficient tree operations
 
 use crate::artifacts::index::checksum::Checksum;
 use crate::artifacts::index::index_entry::{
-    ENTRY_BLOCK, ENTRY_MIN_SIZE, EntryMetadata, IndexEntry,
+    ENTRY_BLOCK, ENTRY_MIN_SIZE, EntryMetadata, IndexEntry, MergeStage,
 };
 use crate::artifacts::index::index_header::IndexHeader;
 use crate::artifacts::index::{HEADER_SIZE, SIGNATURE, VERSION};
@@ -36,8 +36,8 @@ use std::path::{Path, PathBuf};
 pub struct Index {
     /// Path to the index file (typically `.git/index`)
     path: Box<Path>,
-    /// Tracked files mapped by path
-    entries: BTreeMap<Box<Path>, IndexEntry>,
+    /// Tracked files mapped by (path, stage)
+    entries: BTreeMap<(Box<Path>, MergeStage), IndexEntry>,
     /// Directory hierarchy for efficient parent-child lookups
     children: BTreeMap<Box<Path>, BTreeSet<Box<Path>>>,
     /// Index file header metadata
@@ -67,13 +67,47 @@ impl Index {
         &self.path
     }
 
-    /// Look up an entry by its path
+    /// Look up a stage-0 entry by its path
     ///
     /// # Returns
     ///
     /// The index entry if found, None otherwise
     pub fn entry_by_path(&self, path: &Path) -> Option<&IndexEntry> {
-        self.entries.get(path)
+        self.entries
+            .get(&(path.to_path_buf().into_boxed_path(), MergeStage::Clean))
+    }
+
+    /// Check if the index has any unresolved merge conflicts (stage > 0)
+    pub fn has_conflicts(&self) -> bool {
+        self.entries
+            .keys()
+            .any(|(_, stage)| *stage != MergeStage::Clean)
+    }
+
+    /// Return the unique paths that have conflict entries (stage > 0)
+    pub fn conflicted_paths(&self) -> Vec<PathBuf> {
+        let mut paths = BTreeSet::new();
+        for (path, stage) in self.entries.keys() {
+            if *stage != MergeStage::Clean {
+                paths.insert(path.to_path_buf());
+            }
+        }
+        paths.into_iter().collect()
+    }
+
+    /// Add conflict-stage entries for a path, removing any clean stage-0 entry first
+    pub fn add_conflict_entries(&mut self, entries: Vec<IndexEntry>) -> anyhow::Result<()> {
+        if let Some(first) = entries.first() {
+            // Remove the clean stage-0 entry if it exists
+            self.entries
+                .remove(&(first.name.clone().into_boxed_path(), MergeStage::Clean));
+        }
+        for entry in entries {
+            self.store_entry(&entry)?;
+        }
+        self.header.entries_count = self.entries.len() as u32;
+        self.changed = true;
+        Ok(())
     }
 
     /// Clear all entries from the index
@@ -117,12 +151,14 @@ impl Index {
         reader.verify()
     }
 
-    /// Check if a path is tracked directly in the index
+    /// Check if a path is tracked directly in the index (stage-0 entry or directory)
     ///
-    /// Returns true if the path is either a file entry or has children
+    /// Returns true if the path is either a clean stage-0 file entry or has children
     /// (is a directory with tracked files).
     pub fn is_directly_tracked(&self, path: &Path) -> bool {
-        self.entries.contains_key(path) || self.children.contains_key(path)
+        self.entries
+            .contains_key(&(path.to_path_buf().into_boxed_path(), MergeStage::Clean))
+            || self.children.contains_key(path)
     }
 
     fn parse_header(&self, reader: &mut Checksum) -> anyhow::Result<u32> {
@@ -172,13 +208,29 @@ impl Index {
     ///
     /// Removes parent directories that might be file entries, and
     /// removes any children entries if this entry is becoming a file.
+    /// Also enforces the clean XOR conflicted invariant:
+    /// - Adding stage-0 evicts stages 1/2/3 for the same path
+    /// - Adding stage-1/2/3 evicts stage-0 for the same path
     fn discard_conflicts(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
         entry
             .parent_dirs()?
             .into_iter()
             .map(|parent| self.remove_entry(parent))
             .collect::<Result<Vec<_>, _>>()?;
-        self.remove_children(&entry.name)
+        self.remove_children(&entry.name)?;
+
+        // Enforce clean XOR conflicted invariant
+        if entry.stage == MergeStage::Clean {
+            for stage in [MergeStage::Base, MergeStage::Ours, MergeStage::Theirs] {
+                self.entries
+                    .remove(&(entry.name.clone().into_boxed_path(), stage));
+            }
+        } else {
+            self.entries
+                .remove(&(entry.name.clone().into_boxed_path(), MergeStage::Clean));
+        }
+
+        Ok(())
     }
 
     fn store_entry(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
@@ -188,8 +240,10 @@ impl Index {
             .map(|parent| parent.to_owned().into_boxed_path())
             .collect::<BTreeSet<_>>();
 
-        self.entries
-            .insert(entry.name.clone().into_boxed_path(), entry.clone());
+        self.entries.insert(
+            (entry.name.clone().into_boxed_path(), entry.stage),
+            entry.clone(),
+        );
 
         for parent in entry_parents {
             self.children
@@ -211,26 +265,38 @@ impl Index {
         Ok(())
     }
 
+    /// Remove all stage entries (0-3) for a given path
     fn remove_entry(&mut self, path_name: &Path) -> anyhow::Result<()> {
-        match self.entries.remove(path_name) {
-            None => Ok(()),
-            Some(entry) => {
-                entry
-                    .parent_dirs()?
-                    .into_iter()
-                    .map(|parent| parent.to_owned().into_boxed_path())
-                    .for_each(|parent| {
-                        if let Some(children) = self.children.get_mut(&parent) {
-                            children.remove(path_name);
-                            if children.is_empty() {
-                                self.children.remove(&parent);
-                            }
-                        }
-                    });
-
-                Ok(())
+        let mut removed_any = false;
+        for stage in [
+            MergeStage::Clean,
+            MergeStage::Base,
+            MergeStage::Ours,
+            MergeStage::Theirs,
+        ] {
+            let key = (path_name.to_path_buf().into_boxed_path(), stage);
+            if self.entries.remove(&key).is_some() {
+                removed_any = true;
             }
         }
+
+        if removed_any {
+            for parent in path_name
+                .ancestors()
+                .skip(1)
+                .filter(|p| !p.as_os_str().is_empty())
+            {
+                let parent_key = parent.to_path_buf().into_boxed_path();
+                if let Some(children) = self.children.get_mut(&parent_key) {
+                    children.remove(path_name);
+                    if children.is_empty() {
+                        self.children.remove(&parent_key);
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
@@ -282,7 +348,7 @@ impl Index {
     }
 
     pub fn update_entry_stat(&mut self, entry: &IndexEntry, stat: EntryMetadata) {
-        let entry_key = entry.name.clone().into_boxed_path();
+        let entry_key = (entry.name.clone().into_boxed_path(), entry.stage);
         if let Some(existing_entry) = self.entries.get_mut(&entry_key) {
             existing_entry.metadata = stat;
             self.changed = true;
@@ -300,7 +366,7 @@ impl Index {
     pub fn entries_under_path(&self, path: &Path) -> Vec<PathBuf> {
         self.entries
             .keys()
-            .filter(|entry_path| {
+            .filter(|(entry_path, _stage)| {
                 // If path is ".", include all entries
                 if path == Path::new(".") {
                     return true;
@@ -308,7 +374,9 @@ impl Index {
                 // Otherwise, check if the entry is under the given path
                 entry_path.starts_with(path) || entry_path.as_ref() == path
             })
-            .map(|p| p.to_path_buf())
+            .map(|(p, _)| p.to_path_buf())
+            .collect::<BTreeSet<_>>()
+            .into_iter()
             .collect()
     }
 }

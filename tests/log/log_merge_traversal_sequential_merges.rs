@@ -1,36 +1,23 @@
 /// Test Case 5: Multiple branches merged sequentially
 ///
 /// Tests the real-world scenario of merging multiple feature branches
-/// into main over time, creating a complex history with multiple merge commits.
-///
-/// History:
-/// ```
-///       A
-///      /|\
-///     / | \
-///    B  |  F
-///    |  C  |
-///    D  |  G
-///     \ | /
-///      \|/
-///       M1 (merge B into main)
-///        |
-///       M2 (merge C into main)
-///        |
-///       M3 (merge F into main)
-/// ```
+/// into main over time. The first merge (feature-1 into master) is a
+/// fast-forward because master hasn't diverged from feature-1's base yet,
+/// so no merge commit is created for it — master simply advances to D.
+/// The subsequent two merges (feature-2 and feature-3) are true merges
+/// because master has since diverged.
 ///
 /// Timeline:
-/// - A: T0 (base)
-/// - B: T1, D: T3 (feature-1)
-/// - C: T2 (feature-2)
-/// - F: T4, G: T6 (feature-3)
-/// - M1: T5 (merge feature-1)
-/// - M2: T7 (merge feature-2)
-/// - M3: T8 (merge feature-3)
+/// - A: T0 (base on master)
+/// - B: T1, D: T3 (feature-1, branched from A)
+/// - C: T2 (feature-2, branched from A)
+/// - F: T4, G: T6 (feature-3, branched from A)
+/// - T5: merge feature-1 → master is a FAST-FORWARD (master moves to D, no commit created)
+/// - M2: T7 (true merge of feature-2; master/D and C have diverged)
+/// - M3: T8 (true merge of feature-3)
 ///
-/// Expected: All commits from all branches should appear
-/// This tests realistic workflow with multiple feature branches
+/// Expected: 8 unique commits — M3, M2, G, F, D, C, B, A
+/// (no separate M1 commit because the first merge was fast-forwarded)
 use crate::common::command::{
     bit_commit_with_timestamp, bit_merge_with_timestamp, repository_dir, run_bit_command,
     run_git_command,
@@ -167,12 +154,13 @@ fn log_merge_traversal_sequential_merges(
         .filter_map(|line| line.split_whitespace().nth(1))
         .collect();
 
-    // Verify count (9 commits: M3, M2, G, M1, F, D, C, B, A)
-    // Note: exact order depends on timestamp interleaving
+    // Verify count (8 commits: M3, M2, G, F, D, C, B, A).
+    // Note: the merge of feature-1 was a fast-forward (master was at A, a direct
+    // ancestor of D), so no merge commit "M1" was created — master just moved to D.
     assert_eq!(
         bit_commits.len(),
-        9,
-        "Expected 9 commits total, found {}",
+        8,
+        "Expected 8 commits total, found {}",
         bit_commits.len()
     );
 
@@ -183,8 +171,8 @@ fn log_merge_traversal_sequential_merges(
         git_commits, bit_commits
     );
 
-    // Verify all commits present
-    for commit in &["M3", "M2", "M1", "G", "F", "D", "C", "B", "A"] {
+    // Verify all commits present (M1 is absent: it was a fast-forward)
+    for commit in &["M3", "M2", "G", "F", "D", "C", "B", "A"] {
         assert!(
             bit_commits.contains(commit),
             "Commit {} must appear in sequential merge log",

@@ -1,7 +1,15 @@
+mod merge_add_add_conflict;
 mod merge_complex_branching;
+mod merge_content_conflict;
 mod merge_criss_cross;
 mod merge_diamond_pattern;
+mod merge_dirty_workspace_protection;
+mod merge_fast_forward;
+mod merge_file_directory_conflict;
 mod merge_linear_history;
+mod merge_modify_delete_conflict;
+mod merge_null_merge;
 mod merge_octopus_scenario;
 mod merge_same_commit;
 mod merge_simple_divergence;
+mod merge_state_persistence;

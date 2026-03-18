@@ -40,10 +40,10 @@ fn merge_criss_cross(repository_dir: TempDir) -> Result<(), Box<dyn std::error::
         .assert()
         .success();
 
-    // Commit B on master
+    // Commit B on master: add a master-only file (no conflict with branch-left)
     write_file(FileSpec::new(
-        dir.path().join("file1.txt"),
-        "A\nB\n".to_string(),
+        dir.path().join("file_b.txt"),
+        "B\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -55,10 +55,10 @@ fn merge_criss_cross(repository_dir: TempDir) -> Result<(), Box<dyn std::error::
         .assert()
         .success();
 
-    // Commit C on branch-left
+    // Commit C on branch-left: add a left-only file (no conflict with master)
     write_file(FileSpec::new(
-        dir.path().join("file1.txt"),
-        "A\nC\n".to_string(),
+        dir.path().join("file_c.txt"),
+        "C\n".to_string(),
     ));
     run_bit_command(dir.path(), &["add", "."])
         .assert()
@@ -134,6 +134,8 @@ fn merge_criss_cross(repository_dir: TempDir) -> Result<(), Box<dyn std::error::
     assert!(dir.path().join("file1.txt").exists());
     assert!(dir.path().join("file2.txt").exists());
     assert!(dir.path().join("file3.txt").exists());
+    assert!(dir.path().join("file_b.txt").exists());
+    assert!(dir.path().join("file_c.txt").exists());
 
     let file2_content =
         fs::read_to_string(dir.path().join("file2.txt")).expect("Failed to read file2.txt");

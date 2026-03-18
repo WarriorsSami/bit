@@ -217,10 +217,20 @@ impl<'r> Migration<'r> {
         match stat {
             Some(stat) if stat.mode.is_tree() => {
                 if self.inspector.is_indirectly_tracked(path, self.index)? {
-                    self.conflicts
-                        .entry(conflict_type)
-                        .or_default()
-                        .push(path.into());
+                    // Only block checkout if tracked children are not all being removed
+                    // by this same migration (safe directory → file replacement).
+                    let tracked = self.index.entries_under_path(path);
+                    if !tracked.iter().all(|child| {
+                        matches!(
+                            self.tree_diff.changes().get(child),
+                            Some(TreeChangeType::Deleted(_))
+                        )
+                    }) {
+                        self.conflicts
+                            .entry(conflict_type)
+                            .or_default()
+                            .push(path.into());
+                    }
                 }
             }
             Some(_) => {

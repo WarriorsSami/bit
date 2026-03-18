@@ -6,15 +6,35 @@ impl Repository {
     pub async fn commit(&mut self, message: &str) -> anyhow::Result<()> {
         let message = message.trim().to_string();
 
-        let parent = self.refs().read_head()?;
-        let is_root = match parent {
-            Some(_) => "",
-            None => "(root-commit) ",
+        {
+            let index = self.index();
+            let mut index = index.lock().await;
+            index.rehydrate()?;
+
+            if index.has_conflicts() {
+                anyhow::bail!(
+                    "Cannot commit: unresolved merge conflicts. Resolve conflicts and stage the files first."
+                );
+            }
+        }
+
+        let head_parent = self.refs().read_head()?;
+        let merge_head = self.refs().read_merge_head()?;
+
+        let is_root = if head_parent.is_none() {
+            "(root-commit) "
+        } else {
+            ""
         };
 
-        let parents = parent.into_iter().collect();
+        let parents: Vec<_> = head_parent.into_iter().chain(merge_head).collect();
+
         let commit = self.write_commit(parents, message).await?;
         let commit_id = commit.object_id()?;
+
+        // Clear merge state after a successful merge commit
+        self.refs().clear_merge_head()?;
+        self.refs().clear_merge_msg()?;
 
         write!(
             self.writer(),
