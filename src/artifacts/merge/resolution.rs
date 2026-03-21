@@ -67,6 +67,36 @@ impl<'r> MergeResolution<'r> {
         }
     }
 
+    /// Run the full three-way merge against the current index and workspace.
+    ///
+    /// Steps and ordering constraints:
+    ///
+    /// 1. **`prepare_tree_diffs`** — diff base→left and base→right, then classify every
+    ///    changed path as either clean (only one side touched it) or conflicted (both sides
+    ///    touched it differently). Must run first because every subsequent step consumes
+    ///    its output.
+    ///
+    /// 2. **`rename_file_directory_collisions`** — for every `FileDirectory` conflict,
+    ///    rename the tracked file at that path to `<name>~HEAD` in the workspace. Must
+    ///    run *before* Migration because Migration will try to create a real directory at
+    ///    the collided path; that fails on any normal filesystem if a regular file is
+    ///    already sitting there.
+    ///
+    /// 3. **`migration.apply_changes`** — write the clean diff to the workspace and index
+    ///    (creates/updates/deletes files and directories). Must run before
+    ///    `add_conflicts_to_index` because Migration calls `index.add`, which internally
+    ///    evicts any existing conflict entries (stages 1–3) for a path when it promotes
+    ///    it to stage 0. Writing conflict entries first would therefore be lost.
+    ///
+    /// 4. **`add_conflicts_to_index`** — write stage-1/2/3 index entries for every
+    ///    conflicted path. Must run after Migration for the eviction reason above, and
+    ///    before `write_conflict_workspace_files` so that the index accurately reflects
+    ///    the conflict state before any workspace writes touch the same paths.
+    ///
+    /// 5. **`write_conflict_workspace_files`** — write the on-disk representation of each
+    ///    conflict (markers for content conflicts, their blob for delete/modify). Runs last
+    ///    because it only needs the already-computed conflict list and does not affect the
+    ///    index.
     pub fn execute(&self, index: &mut Index, right_name: &str) -> anyhow::Result<()> {
         let (clean_diff, conflicts) = self.prepare_tree_diffs(index)?;
         self.rename_file_directory_collisions(&conflicts)?;
@@ -81,9 +111,26 @@ impl<'r> MergeResolution<'r> {
         Ok(())
     }
 
-    /// Compute both tree diffs, classify every changed path as clean or conflicted,
-    /// and rename any workspace file that collides with an incoming directory.
-    /// Returns the clean changeset (for Migration) and the full conflict list.
+    /// Compute base→left and base→right tree diffs, then classify every path that
+    /// appears in either diff into one of the scenarios below.
+    ///
+    /// Returns the clean changeset (handed to Migration) and the full conflict list.
+    ///
+    /// ## Classification table
+    ///
+    /// | Left (ours)             | Right (theirs)           | Outcome                                                   | Resolution                                                                 |
+    /// |-------------------------|--------------------------|-----------------------------------------------------------|----------------------------------------------------------------------------|
+    /// | None                    | any                      | **Clean** — only right touched it                         | Migration writes/updates/deletes the file; index promoted to stage 0       |
+    /// | any                     | None                     | **Clean** — only left touched it                          | Already in workspace and index; nothing to do                              |
+    /// | Added(A)                | Added(A)                 | **Clean** — identical blob added on both sides            | No-op; both sides already agree                                            |
+    /// | Modified(A)             | Modified(A)              | **Clean** — both converged to the same blob               | No-op; both sides already agree                                            |
+    /// | Deleted                 | Deleted                  | **Clean** — both deleted                                  | Migration applies the delete; index entry removed                          |
+    /// | Added(A)                | Added(B)                 | **Conflict** `Content` — different blobs, no common base  | Conflict markers written to workspace; stages 2 (ours) + 3 (theirs)       |
+    /// | Modified(A)             | Modified(B)              | **Conflict** `Content` — diverged from a shared base      | Conflict markers written to workspace; stages 1 (base) + 2 + 3            |
+    /// | Modified/Added          | Deleted                  | **Conflict** `ModifyDelete` — we kept it, they removed it | Our version left in workspace as-is; stages 1 (base) + 2 (ours)           |
+    /// | Deleted                 | Modified/Added           | **Conflict** `DeleteModify` — we removed it, they kept it | Their blob written to workspace; stages 1 (base) + 3 (theirs)             |
+    /// | Added/Modified(A)       | Modified/Added(B)        | **Conflict** `Content` — remaining cross-combinations     | Conflict markers written to workspace; stages 1 (base, if any) + 2 + 3    |
+    /// | file at ancestor path   | entries added beneath it | **Conflict** `FileDirectory` — dir/file path collision    | Our file renamed to `<name>~HEAD`; Migration creates the directory; stage 2 (ours) |
     fn prepare_tree_diffs(&self, index: &Index) -> anyhow::Result<(ChangeSet, Vec<Conflict>)> {
         let left_changes = self.repository.database().tree_diff(
             Some(self.merge_inputs.base_oid()),
