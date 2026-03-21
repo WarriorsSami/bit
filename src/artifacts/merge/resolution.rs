@@ -201,7 +201,12 @@ impl<'r> MergeResolution<'r> {
                 }
 
                 // CONFLICT: Both modified to different content
-                (SideChange::Modified(l_oid, l_mode), SideChange::Modified(r_oid, _)) => {
+                // Or remaining cross-combinations (e.g. Added vs Modified)
+                (SideChange::Modified(l_oid, l_mode), SideChange::Modified(r_oid, _))
+                | (
+                    SideChange::Added(l_oid, l_mode) | SideChange::Modified(l_oid, l_mode),
+                    SideChange::Modified(r_oid, _) | SideChange::Added(r_oid, _),
+                ) => {
                     conflicts.push(Conflict {
                         path: path.clone(),
                         base_oid: base_oid(),
@@ -239,21 +244,6 @@ impl<'r> MergeResolution<'r> {
                         theirs_oid: Some(r_oid.clone()),
                         mode: *r_mode,
                         kind: ConflictKind::DeleteModify,
-                    });
-                }
-
-                // Remaining cross-combinations (e.g. Added vs Modified)
-                (
-                    SideChange::Added(l_oid, l_mode) | SideChange::Modified(l_oid, l_mode),
-                    SideChange::Modified(r_oid, _) | SideChange::Added(r_oid, _),
-                ) => {
-                    conflicts.push(Conflict {
-                        path: path.clone(),
-                        base_oid: base_oid(),
-                        ours_oid: Some(l_oid.clone()),
-                        theirs_oid: Some(r_oid.clone()),
-                        mode: *l_mode,
-                        kind: ConflictKind::Content,
                     });
                 }
             }
