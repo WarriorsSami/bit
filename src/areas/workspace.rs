@@ -169,6 +169,11 @@ impl Workspace {
         Ok(())
     }
 
+    pub fn rename_file(&self, from: &Path, to: &Path) -> anyhow::Result<()> {
+        std::fs::rename(self.path.join(from), self.path.join(to))?;
+        Ok(())
+    }
+
     pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMetadata> {
         let metadata = std::fs::metadata(self.path.join(file_path))?;
 
