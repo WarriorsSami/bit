@@ -3,7 +3,6 @@ use crate::areas::repository::Repository;
 use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::merge::bca_finder::BCAFinder;
 use crate::artifacts::objects::object_id::ObjectId;
-use crate::debug_log;
 
 pub struct MergeInputs<'r> {
     left_name: &'r str,
@@ -23,12 +22,6 @@ impl<'r> MergeInputs<'r> {
         let right_oid = Self::resolve(repository, right_name)?;
         let base_oid = Self::find_best_common_ancestor(repository, &left_oid, &right_oid)?;
 
-        debug_log!(
-            "Merging {} into {}",
-            merge_oid.to_short_oid(),
-            head_oid.to_short_oid()
-        );
-
         Ok(Self {
             left_name,
             right_name,
@@ -36,6 +29,14 @@ impl<'r> MergeInputs<'r> {
             right_oid,
             base_oid,
         })
+    }
+
+    pub fn left_name(&self) -> &str {
+        self.left_name
+    }
+
+    pub fn right_name(&self) -> &str {
+        self.right_name
     }
 
     pub fn left_oid(&self) -> &ObjectId {

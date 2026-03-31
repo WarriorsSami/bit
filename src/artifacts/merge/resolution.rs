@@ -44,12 +44,16 @@ enum ConflictKind {
     ModifyDelete,
     /// Our side deleted, their side modified/added; their version is written to the workspace
     DeleteModify,
-    /// Our side has a regular file where their side introduces a directory;
-    /// the file is renamed to `<path>~HEAD` before migration runs
+    /// Our side has a regular file at `path`; theirs introduces a directory there.
+    /// Our file is renamed to `rename` (`<path>~HEAD`) before Migration runs.
     FileDirectory,
+    /// Our side has a directory at `path`; theirs introduces a regular file there.
+    /// Their file is written to `rename` (`<path>~<right_name>`) before Migration runs;
+    /// `path` is removed from `clean_diff` so Migration never touches the directory.
+    DirectoryFile,
 }
 
-/// All state needed to record and resolve one conflicted path
+/// All states needed to record and resolve one conflicted path
 struct Conflict {
     path: PathBuf,
     base_oid: Option<ObjectId>,
@@ -57,6 +61,23 @@ struct Conflict {
     theirs_oid: Option<ObjectId>,
     mode: EntryMode,
     kind: ConflictKind,
+    /// Rename target for path-type collision conflicts:
+    /// - `FileDirectory`: new name for our file (`<path>~HEAD`)
+    /// - `DirectoryFile`: destination for their file (`<path>~<right_name>`)
+    rename: Option<PathBuf>,
+}
+
+impl From<&Conflict> for &'static str {
+    fn from(conflict: &Conflict) -> Self {
+        match conflict.kind {
+            ConflictKind::Content if conflict.base_oid.is_some() => "content",
+            ConflictKind::Content => "add/add",
+            ConflictKind::ModifyDelete => "modify/delete",
+            ConflictKind::DeleteModify => "delete/modify",
+            ConflictKind::FileDirectory => "file/directory",
+            ConflictKind::DirectoryFile => "directory/file",
+        }
+    }
 }
 
 impl<'r> MergeResolution<'r> {
@@ -64,6 +85,82 @@ impl<'r> MergeResolution<'r> {
         Self {
             repository,
             merge_inputs,
+        }
+    }
+
+    fn log(&self, message: &str) -> anyhow::Result<()> {
+        writeln!(self.repository.writer(), "{}", message)?;
+
+        Ok(())
+    }
+
+    fn log_branch_names(&self, conflict: &Conflict) -> (String, String) {
+        let (left, right) = (
+            self.merge_inputs.left_name(),
+            self.merge_inputs.right_name(),
+        );
+        if conflict.theirs_oid.is_some() {
+            (left.to_string(), right.to_string())
+        } else {
+            (right.to_string(), left.to_string())
+        }
+    }
+
+    fn log_left_right_conflict(&self, conflict: &Conflict) -> anyhow::Result<()> {
+        let conflict_type: &str = conflict.into();
+
+        self.log(&format!(
+            "CONFLICT ({conflict_type}): Merge conflict in {}",
+            conflict.path.display()
+        ))?;
+
+        Ok(())
+    }
+
+    fn log_modify_delete_conflict(&self, conflict: &Conflict) -> anyhow::Result<()> {
+        let conflict_type: &str = conflict.into();
+
+        let path = &conflict.path.display();
+        let (deleted, modified) = self.log_branch_names(conflict);
+        let rename = match conflict.rename.as_ref() {
+            Some(r) => format!(" at {}", r.display()),
+            None => String::new(),
+        };
+
+        self.log(&format!(
+            "CONFLICT ({conflict_type}): {path} deleted in {deleted} and modified in {modified}.\
+            Version from {modified} of {path} left in tree{rename}",
+        ))?;
+
+        Ok(())
+    }
+
+    fn log_file_directory_conflict(&self, conflict: &Conflict) -> anyhow::Result<()> {
+        let conflict_type: &str = conflict.into();
+
+        let path = &conflict.path.display();
+        let (branch, _) = self.log_branch_names(conflict);
+        let rename = match conflict.rename.as_ref() {
+            Some(r) => format!("{}", r.display()),
+            None => String::new(),
+        };
+
+        self.log(&format!(
+            "CONFLICT ({conflict_type}): There is a directory with name {path} in {branch}. Adding {path} as {rename}",
+        ))?;
+
+        Ok(())
+    }
+
+    fn log_conflict(&self, conflict: &Conflict) -> anyhow::Result<()> {
+        match conflict.kind {
+            ConflictKind::Content => self.log_left_right_conflict(conflict),
+            ConflictKind::ModifyDelete | ConflictKind::DeleteModify => {
+                self.log_modify_delete_conflict(conflict)
+            }
+            ConflictKind::FileDirectory | ConflictKind::DirectoryFile => {
+                self.log_file_directory_conflict(conflict)
+            }
         }
     }
 
@@ -98,7 +195,7 @@ impl<'r> MergeResolution<'r> {
     ///    because it only needs the already-computed conflict list and does not affect the
     ///    index.
     pub fn execute(&self, index: &mut Index, right_name: &str) -> anyhow::Result<()> {
-        let (clean_diff, conflicts) = self.prepare_tree_diffs(index)?;
+        let (clean_diff, conflicts) = self.prepare_tree_diffs(index, right_name)?;
         self.rename_file_directory_collisions(&conflicts)?;
 
         let diff = TreeDiff::from_changeset(self.repository.database(), clean_diff);
@@ -131,7 +228,11 @@ impl<'r> MergeResolution<'r> {
     /// | Deleted                 | Modified/Added           | **Conflict** `DeleteModify` — we removed it, they kept it | Their blob written to workspace; stages 1 (base) + 3 (theirs)             |
     /// | Added/Modified(A)       | Modified/Added(B)        | **Conflict** `Content` — remaining cross-combinations     | Conflict markers written to workspace; stages 1 (base, if any) + 2 + 3    |
     /// | file at ancestor path   | entries added beneath it | **Conflict** `FileDirectory` — dir/file path collision    | Our file renamed to `<name>~HEAD`; Migration creates the directory; stage 2 (ours) |
-    fn prepare_tree_diffs(&self, index: &Index) -> anyhow::Result<(ChangeSet, Vec<Conflict>)> {
+    fn prepare_tree_diffs(
+        &self,
+        index: &Index,
+        right_name: &str,
+    ) -> anyhow::Result<(ChangeSet, Vec<Conflict>)> {
         let left_changes = self.repository.database().tree_diff(
             Some(self.merge_inputs.base_oid()),
             Some(self.merge_inputs.left_oid()),
@@ -154,6 +255,12 @@ impl<'r> MergeResolution<'r> {
         let mut clean_diff: ChangeSet = BTreeMap::new();
         let mut conflicts: Vec<Conflict> = Vec::new();
 
+        enum MergeTriviality {
+            None,
+            Trivial,
+            Conflict,
+        }
+
         for path in &all_paths {
             let left = SideChange::from_tree_change(left_changes.changes().get(path));
             let right = SideChange::from_tree_change(right_changes.changes().get(path));
@@ -166,26 +273,32 @@ impl<'r> MergeResolution<'r> {
                     .map(|e| e.oid.clone())
             };
 
-            match (&left, &right) {
+            let merge_triviality = match (&left, &right) {
                 // Only right changed → clean, apply via migration
                 (SideChange::None, _) => {
                     if let Some(change) = right_changes.changes().get(path) {
                         clean_diff.insert(path.clone(), change.clone());
                     }
+                    MergeTriviality::None
                 }
 
                 // Only left changed → already in workspace, nothing to do
-                (_, SideChange::None) => {}
+                (_, SideChange::None) => MergeTriviality::None,
 
                 // Same content on both sides → idempotent, no conflict
-                (SideChange::Added(l, _), SideChange::Added(r, _)) if l == r => {}
-                (SideChange::Modified(l, _), SideChange::Modified(r, _)) if l == r => {}
+                (SideChange::Added(l, _), SideChange::Added(r, _))
+                | (SideChange::Modified(l, _), SideChange::Modified(r, _))
+                    if l == r =>
+                {
+                    MergeTriviality::Trivial
+                }
 
                 // Both deleted → clean delete
                 (SideChange::Deleted, SideChange::Deleted) => {
                     if let Some(change) = right_changes.changes().get(path) {
                         clean_diff.insert(path.clone(), change.clone());
                     }
+                    MergeTriviality::Trivial
                 }
 
                 // CONFLICT: Add/Add — different content, no common base
@@ -197,7 +310,9 @@ impl<'r> MergeResolution<'r> {
                         theirs_oid: Some(r_oid.clone()),
                         mode: *l_mode,
                         kind: ConflictKind::Content,
+                        rename: None,
                     });
+                    MergeTriviality::Conflict
                 }
 
                 // CONFLICT: Both modified to different content
@@ -214,7 +329,9 @@ impl<'r> MergeResolution<'r> {
                         theirs_oid: Some(r_oid.clone()),
                         mode: *l_mode,
                         kind: ConflictKind::Content,
+                        rename: None,
                     });
+                    MergeTriviality::Conflict
                 }
 
                 // CONFLICT: Our side modified/added, their side deleted
@@ -229,7 +346,9 @@ impl<'r> MergeResolution<'r> {
                         theirs_oid: None,
                         mode: *l_mode,
                         kind: ConflictKind::ModifyDelete,
+                        rename: None,
                     });
+                    MergeTriviality::Conflict
                 }
 
                 // CONFLICT: Our side deleted, their side modified/added
@@ -244,33 +363,59 @@ impl<'r> MergeResolution<'r> {
                         theirs_oid: Some(r_oid.clone()),
                         mode: *r_mode,
                         kind: ConflictKind::DeleteModify,
+                        rename: None,
                     });
+                    MergeTriviality::Conflict
+                }
+            };
+
+            // report trivial merges and conflicts as we classify them;
+            // this way the user gets immediate feedback on all cleanly merged paths
+            // instead of waiting until the end to see the full list of conflicts
+            match merge_triviality {
+                MergeTriviality::None => {}
+                MergeTriviality::Trivial => {
+                    self.log(&format!("Auto-merging {}", path.display()))?;
+                }
+                MergeTriviality::Conflict => {
+                    self.log(&format!("Auto-merging {} failed", path.display()))?;
+                    self.log_conflict(
+                        conflicts
+                            .last()
+                            .expect("Just pushed a conflict, must exist"),
+                    )?;
                 }
             }
         }
 
-        self.detect_file_directory_collisions(index, &clean_diff, &mut conflicts);
+        self.detect_file_directory_collisions(index, &mut clean_diff, &mut conflicts, right_name)?;
 
         Ok((clean_diff, conflicts))
     }
 
-    /// Detect file/directory collisions: right side adds entries under a path that our
-    /// side tracks as a regular file. Records a `ConflictKind::FileDirectory` entry for
-    /// each such path; the actual rename is performed by `rename_file_directory_collisions`.
+    /// Detect both directions of file/directory path-type collisions:
+    ///
+    /// - **file/directory**: right side adds entries *under* a path that our side tracks
+    ///   as a regular file. Our file is renamed to `<name>~HEAD` before Migration runs.
+    /// - **directory/file**: right side adds a file at a path where our side has directory
+    ///   entries. Their file is written to `<name>~<right_name>` and the path is removed
+    ///   from `clean_diff` so Migration never attempts to overwrite the directory.
     fn detect_file_directory_collisions(
         &self,
         index: &Index,
-        clean_diff: &ChangeSet,
+        clean_diff: &mut ChangeSet,
         conflicts: &mut Vec<Conflict>,
-    ) {
-        let mut seen = BTreeSet::new();
+        right_name: &str,
+    ) -> anyhow::Result<()> {
+        // file/directory: right adds entries beneath a path we track as a file
+        let mut seen_file: BTreeSet<PathBuf> = BTreeSet::new();
         for right_path in clean_diff.keys() {
             for ancestor in right_path.ancestors().skip(1) {
                 if ancestor.as_os_str().is_empty() {
                     break;
                 }
                 let ancestor = ancestor.to_path_buf();
-                if !seen.contains(&ancestor)
+                if !seen_file.contains(&ancestor)
                     && let Some(entry) = index.entry_by_path(&ancestor)
                 {
                     conflicts.push(Conflict {
@@ -280,24 +425,115 @@ impl<'r> MergeResolution<'r> {
                         theirs_oid: None,
                         mode: entry.metadata.mode,
                         kind: ConflictKind::FileDirectory,
+                        rename: Some({
+                            let name = format!(
+                                "{}~HEAD",
+                                ancestor.file_name().unwrap_or_default().to_string_lossy()
+                            );
+                            ancestor.with_file_name(name)
+                        }),
                     });
-                    seen.insert(ancestor);
+                    seen_file.insert(ancestor.clone());
+
+                    self.log(&format!("Adding {}", ancestor.display()))?;
+                    self.log_conflict(
+                        conflicts
+                            .last()
+                            .expect("Just pushed a conflict, must exist"),
+                    )?;
                 }
             }
         }
+
+        // directory/file: right adds a file at a path that is a directory in our tree
+        let mut seen_dir: BTreeSet<PathBuf> = BTreeSet::new();
+        let candidate_paths: Vec<PathBuf> = clean_diff.keys().cloned().collect();
+        for right_path in candidate_paths {
+            if seen_dir.contains(&right_path) {
+                continue;
+            }
+            let has_children = index
+                .entries_under_path(&right_path)
+                .into_iter()
+                .any(|p| p != right_path && p.starts_with(&right_path));
+            if !has_children {
+                continue;
+            }
+            let (incoming_oid, incoming_mode) = match clean_diff.get(&right_path) {
+                Some(TreeChangeType::Added(e)) | Some(TreeChangeType::Modified { new: e, .. }) => {
+                    (e.oid.clone(), e.mode)
+                }
+                _ => continue,
+            };
+            let file_name = right_path
+                .file_name()
+                .map(|n| format!("{}~{}", n.to_string_lossy(), right_name))
+                .unwrap_or_default();
+            let rename = right_path.with_file_name(file_name);
+            conflicts.push(Conflict {
+                path: right_path.clone(),
+                base_oid: None,
+                ours_oid: None,
+                theirs_oid: Some(incoming_oid),
+                mode: incoming_mode,
+                kind: ConflictKind::DirectoryFile,
+                rename: Some(rename),
+            });
+            seen_dir.insert(right_path.clone());
+
+            self.log(&format!("Adding {}", right_path.display()))?;
+            self.log_conflict(
+                conflicts
+                    .last()
+                    .expect("Just pushed a conflict, must exist"),
+            )?;
+        }
+
+        // Remove directory/file paths from clean_diff — Migration must not attempt to
+        // write a file at a path that is already a directory in the workspace.
+        for path in &seen_dir {
+            clean_diff.remove(path);
+        }
+
+        Ok(())
     }
 
-    /// Rename each file that collides with an incoming directory to `<name>~HEAD`,
-    /// so that Migration can create a directory at that path.
+    /// Resolve workspace-level path-type collisions before Migration runs:
+    ///
+    /// - **file/directory** (`ours_oid` is Some): rename our existing file to `<name>~HEAD`
+    ///   so Migration can create a directory at that path.
+    /// - **directory/file** (`theirs_oid` is Some, `ours_oid` is None): write their blob
+    ///   to `<name>~<right_name>` so the incoming file is preserved without overwriting
+    ///   our directory.
     fn rename_file_directory_collisions(&self, conflicts: &[Conflict]) -> anyhow::Result<()> {
         for conflict in conflicts {
-            if matches!(conflict.kind, ConflictKind::FileDirectory)
-                && let Some(old_name) = conflict.path.file_name()
-            {
-                let new_name = format!("{}~HEAD", old_name.to_string_lossy());
-                self.repository
-                    .workspace()
-                    .rename_file(&conflict.path, &PathBuf::from(new_name))?;
+            match conflict.kind {
+                ConflictKind::FileDirectory => {
+                    // Rename our file to ~HEAD so Migration can create a directory there
+                    let rename = conflict
+                        .rename
+                        .as_ref()
+                        .expect("FileDirectory conflict must have a rename target");
+                    self.repository
+                        .workspace()
+                        .rename_file(&conflict.path, rename)?;
+                }
+                ConflictKind::DirectoryFile => {
+                    // Write their blob to ~<right_name>; Migration will not touch this path
+                    let rename = conflict
+                        .rename
+                        .as_ref()
+                        .expect("DirectoryFile conflict must have a rename target");
+                    let theirs_oid = conflict
+                        .theirs_oid
+                        .as_ref()
+                        .expect("DirectoryFile conflict must have theirs_oid");
+                    let content = self.load_blob_content(theirs_oid)?;
+                    self.repository
+                        .workspace()
+                        .write_file(rename, content.as_bytes())?;
+                }
+                _ => {}
             }
         }
         Ok(())
@@ -361,7 +597,9 @@ impl<'r> MergeResolution<'r> {
                         .workspace()
                         .write_file(&conflict.path, content.as_bytes())?;
                 }
-                ConflictKind::ModifyDelete | ConflictKind::FileDirectory => {}
+                ConflictKind::ModifyDelete
+                | ConflictKind::FileDirectory
+                | ConflictKind::DirectoryFile => {}
             }
         }
         Ok(())

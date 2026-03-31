@@ -1,5 +1,11 @@
 mod merge_add_add_conflict;
 mod merge_complex_branching;
+mod merge_conflict_report_add_add;
+mod merge_conflict_report_content;
+mod merge_conflict_report_delete_modify;
+mod merge_conflict_report_directory_file;
+mod merge_conflict_report_file_directory;
+mod merge_conflict_report_modify_delete;
 mod merge_content_conflict;
 mod merge_criss_cross;
 mod merge_diamond_pattern;
