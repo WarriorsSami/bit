@@ -1,6 +1,6 @@
 use crate::areas::repository::Repository;
-use crate::artifacts::status::file_change::FileChangeType;
-use crate::artifacts::status::status_info::StatusInfo;
+use crate::artifacts::status::file_change::{ConflictType, FileChangeType};
+use crate::artifacts::status::status_info::{ConflictSet, StatusInfo};
 use colored::*;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -22,14 +22,25 @@ impl Repository {
         index.write_updates()?;
 
         if porcelain {
-            status_info.changed_files.iter().for_each(|(file, status)| {
-                writeln!(self.writer(), "{} {}", status, file.display()).unwrap();
-            });
-
-            status_info.untracked_files.iter().for_each(|file| {
-                writeln!(self.writer(), "?? {}", file.display()).unwrap();
-            });
+            // Merge regular changes and conflict entries into a single sorted map.
+            let mut porcelain_lines: BTreeMap<PathBuf, String> = BTreeMap::new();
+            for (file, change) in &status_info.changed_files {
+                porcelain_lines.insert(file.clone(), String::from(change));
+            }
+            for (file, stages) in &status_info.conflicts {
+                let ct = ConflictType::from_stages(stages);
+                porcelain_lines.insert(file.clone(), ct.porcelain_code().to_string());
+            }
+            for (file, code) in &porcelain_lines {
+                writeln!(self.writer(), "{} {}", code, file.display())?;
+            }
+            for file in &status_info.untracked_files {
+                writeln!(self.writer(), "?? {}", file.display())?;
+            }
         } else {
+            if !status_info.conflicts.is_empty() {
+                self.print_conflicts(&status_info.conflicts)?;
+            }
             self.print_changes("Changes to be committed", &status_info.index_changeset)?;
             self.print_changes(
                 "Changes not staged for commit",
@@ -37,9 +48,27 @@ impl Repository {
             )?;
             self.print_changes("Untracked files", &status_info.untracked_changeset)?;
 
-            self.print_commit_status(&status_info)?;
+            if status_info.conflicts.is_empty() {
+                self.print_commit_status(&status_info)?;
+            }
         }
 
+        Ok(())
+    }
+
+    fn print_conflicts(&self, conflicts: &ConflictSet) -> anyhow::Result<()> {
+        writeln!(self.writer(), "{}:\n", "Unmerged paths".bold())?;
+        writeln!(self.writer(), "  (fix conflicts and run 'bit commit')\n")?;
+        for (file, stages) in conflicts {
+            let ct = ConflictType::from_stages(stages);
+            writeln!(
+                self.writer(),
+                "        {}{}",
+                ct.long_label().red(),
+                file.display().to_string().red()
+            )?;
+        }
+        writeln!(self.writer())?;
         Ok(())
     }
 

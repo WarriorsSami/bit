@@ -95,6 +95,17 @@ impl Index {
         paths.into_iter().collect()
     }
 
+    /// Check if a path has any non-zero stage entries (unresolved merge conflict)
+    pub fn is_conflicted_path(&self, path: &Path) -> bool {
+        let boxed = path.to_path_buf().into_boxed_path();
+        self.entries
+            .contains_key(&(boxed.clone(), MergeStage::Base))
+            || self
+                .entries
+                .contains_key(&(boxed.clone(), MergeStage::Ours))
+            || self.entries.contains_key(&(boxed, MergeStage::Theirs))
+    }
+
     /// Add conflict-stage entries for a path, removing any clean stage-0 entry first
     pub fn add_conflict_entries(&mut self, entries: Vec<IndexEntry>) -> anyhow::Result<()> {
         if let Some(first) = entries.first() {

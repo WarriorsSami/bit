@@ -1,7 +1,7 @@
 use crate::areas::index::Index;
 use crate::areas::repository::Repository;
 use crate::artifacts::database::database_entry::DatabaseEntry;
-use crate::artifacts::index::index_entry::{EntryMetadata, IndexEntry};
+use crate::artifacts::index::index_entry::{EntryMetadata, IndexEntry, MergeStage};
 use crate::artifacts::status::file_change::{
     FileChange, FileChangeType, IndexChangeType, WorkspaceChangeType,
 };
@@ -15,6 +15,7 @@ pub type FileStatSet = BTreeMap<PathBuf, EntryMetadata>;
 pub type ChangeSet = BTreeMap<PathBuf, FileChangeType>;
 pub type FileSet = BTreeSet<PathBuf>;
 pub type HeadTree = BTreeMap<PathBuf, DatabaseEntry>;
+pub type ConflictSet = BTreeMap<PathBuf, BTreeSet<MergeStage>>;
 
 #[derive(Debug, Clone)]
 pub struct StatusInfo {
@@ -25,6 +26,8 @@ pub struct StatusInfo {
     pub(crate) workspace_changeset: ChangeSet,
     pub(crate) index_changeset: ChangeSet,
     pub(crate) head_tree: HeadTree,
+    /// Paths with unresolved merge conflicts mapped to the set of stages present.
+    pub(crate) conflicts: ConflictSet,
 }
 
 #[derive(new)]
@@ -38,6 +41,17 @@ impl<'r> Status<'r> {
         let mut untracked_files = BTreeSet::<PathBuf>::new();
 
         let inspector = Inspector::new(self.repository);
+
+        // Build the conflicts map from all non-clean stage entries before workspace scan.
+        let mut conflicts: ConflictSet = BTreeMap::new();
+        for entry in index.entries() {
+            if entry.stage != MergeStage::Clean {
+                conflicts
+                    .entry(entry.name.clone())
+                    .or_default()
+                    .insert(entry.stage);
+            }
+        }
 
         self.scan_workspace(
             None,
@@ -90,6 +104,7 @@ impl<'r> Status<'r> {
             workspace_changeset,
             index_changeset,
             head_tree,
+            conflicts,
         })
     }
 
@@ -118,6 +133,9 @@ impl<'r> Status<'r> {
                     let stat = self.repository.workspace().stat_file(path)?;
                     file_stats.insert(path.clone(), stat);
                 }
+            } else if index.is_conflicted_path(path) {
+                // Conflicted files have no stage-0 entry but are tracked; skip them here.
+                // They are reported via the conflicts section, not as untracked files.
             } else if !inspector.is_indirectly_tracked(path, index)? {
                 // add the file separator if it's a directory
                 let path = if path.is_dir() {
@@ -164,6 +182,10 @@ impl<'r> Status<'r> {
         let index_entries = index.entries().map(Clone::clone).collect::<Vec<_>>();
 
         for entry in index_entries {
+            // Skip conflict-stage entries: they are tracked separately in StatusInfo::conflicts.
+            if entry.stage != MergeStage::Clean {
+                continue;
+            }
             self.check_index_entry_against_workspace(
                 &entry,
                 file_stats,
@@ -247,7 +269,9 @@ impl<'r> Status<'r> {
         changed_files: &mut BTreeMap<PathBuf, FileChange>,
     ) {
         head_tree.iter().for_each(|(path, _)| {
-            if !index.is_directly_tracked(path) {
+            // A conflicted path is not stage-0 tracked, but it is not truly deleted —
+            // it has non-zero stage entries and is reported via the conflicts section.
+            if !index.is_directly_tracked(path) && !index.is_conflicted_path(path) {
                 changed_files.entry(path.clone()).or_default().index_change =
                     IndexChangeType::Deleted;
             }
