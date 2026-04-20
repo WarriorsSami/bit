@@ -18,6 +18,7 @@
 #![allow(dead_code)]
 
 use crate::artifacts::core::PagerWriter;
+use crate::artifacts::index::index_entry::MergeStage;
 use crate::commands::porcelain::log::parse_log_target;
 use crate::commands::porcelain::log::{LogOptions, LogRevisionTargets};
 use anyhow::Result;
@@ -159,6 +160,24 @@ enum Commands {
             help = "Filter the diff output by file status (e.g., A for added, D for deleted, M for modified)"
         )]
         diff_filter: Option<String>,
+        #[arg(
+            long = "base",
+            short = '1',
+            help = "Compare workspace to stage 1 (common ancestor)"
+        )]
+        base: bool,
+        #[arg(
+            long = "ours",
+            short = '2',
+            help = "Compare workspace to stage 2 (ours/HEAD)"
+        )]
+        ours: bool,
+        #[arg(
+            long = "theirs",
+            short = '3',
+            help = "Compare workspace to stage 3 (theirs/incoming)"
+        )]
+        theirs: bool,
         #[arg(index = 1, help = "The first commit SHA to compare (optional)")]
         old_revision: Option<String>,
         #[arg(index = 2, help = "The second commit SHA to compare (optional)")]
@@ -374,6 +393,9 @@ async fn run() -> Result<()> {
             cached,
             name_status,
             diff_filter,
+            base,
+            ours,
+            theirs,
             old_revision,
             new_revision,
         } => {
@@ -387,6 +409,13 @@ async fn run() -> Result<()> {
                 },
             )?;
 
+            let conflict_stage = match (base, ours, theirs) {
+                (true, _, _) => Some(MergeStage::Base),
+                (_, true, _) => Some(MergeStage::Ours),
+                (_, _, true) => Some(MergeStage::Theirs),
+                _ => None,
+            };
+
             repository
                 .diff(
                     *cached,
@@ -394,6 +423,7 @@ async fn run() -> Result<()> {
                     diff_filter.as_deref(),
                     old_revision.as_deref(),
                     new_revision.as_deref(),
+                    conflict_stage,
                 )
                 .await?;
 

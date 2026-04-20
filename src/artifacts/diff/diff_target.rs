@@ -2,6 +2,7 @@ use crate::areas::database::Database;
 use crate::areas::index::Index;
 use crate::areas::workspace::Workspace;
 use crate::artifacts::database::database_entry::DatabaseEntry;
+use crate::artifacts::index::index_entry::MergeStage;
 use crate::artifacts::objects::object::Object;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::status::status_info::{FileStatSet, HeadTree};
@@ -68,6 +69,29 @@ impl<'d> DiffTarget<'d> {
                 })
             })
             .unwrap_or_else(|| anyhow::bail!("File {} not tracked", file.display()))
+    }
+
+    /// Fetch a specific merge stage from the index.
+    /// Returns `None` when the stage entry doesn't exist (silently skip).
+    pub fn from_index_stage(
+        file: &Path,
+        stage: MergeStage,
+        index: &'d Index,
+        database: &'d Database,
+    ) -> Option<anyhow::Result<Self>> {
+        index.entry_by_path_and_stage(file, stage).map(|entry| {
+            let oid = &entry.oid;
+            let mode = entry.metadata.mode.as_str();
+            let blob = database.parse_object_as_blob(oid)?;
+            let blob =
+                blob.ok_or_else(|| anyhow::anyhow!("Blob not found for {}", file.display()))?;
+            Ok(Self {
+                file: file.to_path_buf(),
+                oid: oid.clone(),
+                mode: Some(mode),
+                data: blob.content().lines().map(|s| s.to_string()).collect(),
+            })
+        })
     }
 
     pub fn from_file(

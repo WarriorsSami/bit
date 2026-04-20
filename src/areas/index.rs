@@ -77,6 +77,12 @@ impl Index {
             .get(&(path.to_path_buf().into_boxed_path(), MergeStage::Clean))
     }
 
+    /// Look up an entry by its path and a specific merge stage
+    pub fn entry_by_path_and_stage(&self, path: &Path, stage: MergeStage) -> Option<&IndexEntry> {
+        self.entries
+            .get(&(path.to_path_buf().into_boxed_path(), stage))
+    }
+
     /// Check if the index has any unresolved merge conflicts (stage > 0)
     pub fn has_conflicts(&self) -> bool {
         self.entries

@@ -5,12 +5,14 @@ use crate::artifacts::branch::revision::Revision;
 use crate::artifacts::diff::diff_algorithm::{DiffAlgorithm, Hunk, MyersDiff};
 use crate::artifacts::diff::diff_target::DiffTarget;
 use crate::artifacts::diff::tree_diff::DiffFilter;
+use crate::artifacts::index::index_entry::MergeStage;
 use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::status::file_change::{FileChangeType, IndexChangeType, WorkspaceChangeType};
-use crate::artifacts::status::status_info::StatusInfo;
+use crate::artifacts::status::status_info::{FileStatSet, StatusInfo};
 use colored::Colorize;
-use std::path::Path;
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
 
 impl Repository {
     pub async fn diff(
@@ -20,6 +22,7 @@ impl Repository {
         diff_filter: Option<&str>,
         old_revision: Option<&str>,
         new_revision: Option<&str>,
+        conflict_stage: Option<MergeStage>,
     ) -> anyhow::Result<()> {
         // If both commits are provided, compare them
         if let (Some(old_revision), Some(new_revision)) = (old_revision, new_revision) {
@@ -52,7 +55,7 @@ impl Repository {
         let status_info = self.status().initialize(&mut index).await?;
 
         if !cached {
-            self.diff_index_workspace(&status_info, &index, self.workspace())?;
+            self.diff_index_workspace(&status_info, &index, self.workspace(), conflict_stage)?;
         } else {
             self.diff_head_index(&status_info, &index)?;
         }
@@ -105,32 +108,67 @@ impl Repository {
         status_info: &StatusInfo,
         index: &Index,
         workspace: &Workspace,
+        conflict_stage: Option<MergeStage>,
     ) -> anyhow::Result<()> {
-        status_info
-            .workspace_changeset
-            .iter()
-            .filter_map(|(file, change)| match *change {
-                FileChangeType::Workspace(WorkspaceChangeType::Modified) => {
-                    Some((file, WorkspaceChangeType::Modified))
-                }
-                FileChangeType::Workspace(WorkspaceChangeType::Deleted) => {
-                    Some((file, WorkspaceChangeType::Deleted))
-                }
-                _ => None,
-            })
-            .map(|(file, change)| match change {
-                WorkspaceChangeType::Modified => self.print_diff(
-                    &mut DiffTarget::from_index(file, index, self.database())?,
-                    &mut DiffTarget::from_file(file, workspace, &status_info.file_stats)?,
-                ),
-                WorkspaceChangeType::Deleted => self.print_diff(
-                    &mut DiffTarget::from_index(file, index, self.database())?,
-                    &mut DiffTarget::from_nothing(file)?,
-                ),
-                _ => unreachable!(),
-            })
-            .collect::<anyhow::Result<Vec<_>>>()?;
+        let mut paths: BTreeSet<PathBuf> = status_info.conflicts.keys().cloned().collect();
+        for file in status_info.workspace_changeset.keys() {
+            paths.insert(file.clone());
+        }
 
+        for file in &paths {
+            if index.is_conflicted_path(file) {
+                self.print_conflict_diff(
+                    file,
+                    conflict_stage,
+                    index,
+                    workspace,
+                    &status_info.file_stats,
+                )?;
+            } else {
+                match status_info.workspace_changeset.get(file) {
+                    Some(FileChangeType::Workspace(WorkspaceChangeType::Modified)) => {
+                        self.print_diff(
+                            &mut DiffTarget::from_index(file, index, self.database())?,
+                            &mut DiffTarget::from_file(file, workspace, &status_info.file_stats)?,
+                        )?;
+                    }
+                    Some(FileChangeType::Workspace(WorkspaceChangeType::Deleted)) => {
+                        self.print_diff(
+                            &mut DiffTarget::from_index(file, index, self.database())?,
+                            &mut DiffTarget::from_nothing(file)?,
+                        )?;
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn print_conflict_diff(
+        &self,
+        file: &Path,
+        conflict_stage: Option<MergeStage>,
+        index: &Index,
+        workspace: &Workspace,
+        file_stats: &FileStatSet,
+    ) -> anyhow::Result<()> {
+        match conflict_stage {
+            None => {
+                writeln!(self.writer(), "* Unmerged path {}", file.display())?;
+            }
+            Some(stage) => {
+                if let Some(stage_target) =
+                    DiffTarget::from_index_stage(file, stage, index, self.database())
+                {
+                    self.print_diff(
+                        &mut stage_target?,
+                        &mut DiffTarget::from_file(file, workspace, file_stats)?,
+                    )?;
+                }
+            }
+        }
         Ok(())
     }
 

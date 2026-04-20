@@ -1,3 +1,10 @@
+mod diff_base_stage_against_workspace;
+mod diff_ours_stage_against_workspace;
+mod diff_theirs_stage_against_workspace;
+mod identify_unmerged_path_on_conflict;
+mod missing_stage_silently_skipped;
+mod mixed_conflict_and_clean_diff;
+mod no_patch_without_stage_flag;
 mod show_cached_diff_for_file_added_to_index;
 mod show_cached_diff_for_file_deleted_from_index;
 mod show_cached_diff_for_file_with_both_modified_content_and_mode_in_index;

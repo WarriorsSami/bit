@@ -134,8 +134,13 @@ impl<'r> Status<'r> {
                     file_stats.insert(path.clone(), stat);
                 }
             } else if index.is_conflicted_path(path) {
-                // Conflicted files have no stage-0 entry but are tracked; skip them here.
-                // They are reported via the conflicts section, not as untracked files.
+                // Conflicted files have no stage-0 entry, but their workspace content (which
+                // contains conflict markers) must be stat'd so that `diff --ours/--theirs/--base`
+                // can read the file for comparison.
+                if !path.is_dir() {
+                    let stat = self.repository.workspace().stat_file(path)?;
+                    file_stats.insert(path.clone(), stat);
+                }
             } else if !inspector.is_indirectly_tracked(path, index)? {
                 // add the file separator if it's a directory
                 let path = if path.is_dir() {
