@@ -3,8 +3,15 @@ use crate::artifacts::objects::object::Object;
 use std::io::Write;
 
 impl Repository {
-    pub async fn commit(&mut self, message: &str) -> anyhow::Result<()> {
-        let message = message.trim().to_string();
+    pub async fn commit(&mut self, message: Option<&str>) -> anyhow::Result<()> {
+        let message = match message {
+            Some(m) => m.trim().to_string(),
+            None => self.refs().read_merge_msg()?.ok_or_else(|| {
+                anyhow::anyhow!(
+                    "no commit message provided (use -m or resolve a merge in progress)"
+                )
+            })?,
+        };
 
         {
             let index = self.index();

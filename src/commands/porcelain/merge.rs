@@ -4,6 +4,7 @@ use crate::artifacts::checkout::migration::Migration;
 use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::merge::inputs::MergeInputs;
 use crate::artifacts::merge::resolution::MergeResolution;
+use crate::artifacts::objects::object::Object;
 
 // TODO: pattern match the merge type (null, fast-forward, normal) and handle each case separately
 impl Repository {
@@ -38,6 +39,50 @@ impl Repository {
         ];
 
         self.write_commit(parents, message.to_string()).await?;
+
+        Ok(())
+    }
+
+    pub async fn merge_continue(&mut self) -> anyhow::Result<()> {
+        {
+            let index = self.index();
+            let mut index = index.lock().await;
+            index.rehydrate()?;
+            if index.has_conflicts() {
+                anyhow::bail!(
+                    "you have unmerged files; fix conflicts and run `bit add` before continuing"
+                );
+            }
+        }
+
+        let merge_head = self
+            .refs()
+            .read_merge_head()?
+            .ok_or_else(|| anyhow::anyhow!("no merge in progress"))?;
+
+        let message = self
+            .refs()
+            .read_merge_msg()?
+            .unwrap_or_else(|| "Merge commit".to_string());
+
+        let head_oid = self
+            .refs()
+            .read_head()?
+            .ok_or_else(|| anyhow::anyhow!("no HEAD commit found"))?;
+
+        let parents = vec![head_oid, merge_head];
+        let commit = self.write_commit(parents, message).await?;
+        let commit_id = commit.object_id()?;
+
+        self.refs().clear_merge_head()?;
+        self.refs().clear_merge_msg()?;
+
+        write!(
+            self.writer(),
+            "[{}] {}",
+            &commit_id.as_ref()[..7],
+            commit.short_message()
+        )?;
 
         Ok(())
     }

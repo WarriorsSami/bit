@@ -359,6 +359,19 @@ impl Refs {
         self.update_ref_file(path, message.to_string())
     }
 
+    pub fn read_merge_msg(&self) -> anyhow::Result<Option<String>> {
+        let path = self.path.join(MERGE_MSG);
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(&path)?;
+        let content = content.trim().to_string();
+        if content.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(content))
+    }
+
     pub fn clear_merge_msg(&self) -> anyhow::Result<()> {
         let path = self.path.join(MERGE_MSG);
         if path.exists() {

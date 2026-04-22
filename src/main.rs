@@ -125,7 +125,7 @@ enum Commands {
     )]
     Commit {
         #[arg(short, long, help = "The commit message")]
-        message: String,
+        message: Option<String>,
     },
     #[command(
         name = "status",
@@ -240,9 +240,14 @@ enum Commands {
     )]
     Merge {
         #[arg(index = 1, help = "The revision to merge into the current branch")]
-        target_revision: String,
+        target_revision: Option<String>,
         #[arg(short, long, help = "The commit message for the merge commit")]
-        message: String,
+        message: Option<String>,
+        #[arg(
+            long = "continue",
+            help = "Resume an in-progress merge after resolving conflicts"
+        )]
+        continue_merge: bool,
     },
 }
 
@@ -381,7 +386,7 @@ async fn run() -> Result<()> {
             let pwd = std::env::current_dir()?;
             let mut repository = Repository::new(pwd, stdout_writer)?;
 
-            repository.commit(message.as_str()).await?
+            repository.commit(message.as_deref()).await?
         }
         Commands::Status { porcelain } => {
             let pwd = std::env::current_dir()?;
@@ -490,13 +495,22 @@ async fn run() -> Result<()> {
         Commands::Merge {
             target_revision,
             message,
+            continue_merge,
         } => {
             let pwd = std::env::current_dir()?;
             let mut repository = Repository::new(pwd, stdout_writer)?;
 
-            repository
-                .merge(target_revision.as_str(), message.as_str())
-                .await?
+            if *continue_merge {
+                repository.merge_continue().await?
+            } else {
+                let target = target_revision
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("target revision required"))?;
+                let msg = message
+                    .as_deref()
+                    .ok_or_else(|| anyhow::anyhow!("--message required for merge"))?;
+                repository.merge(target, msg).await?
+            }
         }
     }
 
