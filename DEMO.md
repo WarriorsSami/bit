@@ -4,37 +4,27 @@ A quick walkthrough of every porcelain command: `init`, `add`, `status`, `commit
 
 ## Setup
 
-Build the binary and create a scratch directory:
-
 ```sh
 cargo build --release
-mkdir /tmp/bit-demo && cd /tmp/bit-demo
-export NO_PAGER=1
-export GIT_AUTHOR_NAME="Demo User"
-export GIT_AUTHOR_EMAIL="demo@example.com"
-alias bit=/path/to/bit/target/release/bit
 ```
 
-> Replace `/path/to/bit` with the actual repo path. `NO_PAGER=1` disables the pager so output prints inline.
+Run the full demo, or individual acts:
+
+```sh
+just demo          # build + act1 + act2 + act3
+just act1          # just Act 1
+just act2          # just Act 2 (requires act1)
+just act3          # just Act 3 (requires act1 + act2)
+just clean         # remove /tmp/bit-demo
+```
+
+Or follow the steps below manually — `cd /tmp/bit-demo` after running `just act1` to pick up from any point.
 
 ---
 
 ## Act 1 — Create a Project
 
-<details>
-<summary><b>Run all of Act 1 at once</b></summary>
-
-```sh
-bit init \
-&& echo "hello world" > app.txt \
-&& echo "fn add(a, b) { a + b }" > lib.txt \
-&& bit status --porcelain \
-&& bit add . \
-&& bit status --porcelain \
-&& bit commit -m "Initial commit"
-```
-
-</details>
+> **Quick run:** `just act1`
 
 ### 1. Initialize a repository
 
@@ -97,26 +87,7 @@ bit commit -m "Initial commit"
 
 ## Act 2 — Evolve and Inspect
 
-<details>
-<summary><b>Run all of Act 2 at once</b></summary>
-
-```sh
-echo "hello bit" >> app.txt \
-&& bit diff \
-&& bit add app.txt \
-&& bit diff --cached \
-&& bit commit -m "Update app" \
-&& bit log --oneline \
-&& bit branch create feature \
-&& bit branch list -v \
-&& bit checkout feature \
-&& echo "new feature" > feature.txt \
-&& bit add . \
-&& bit commit -m "Add feature" \
-&& bit checkout master
-```
-
-</details>
+> **Quick run:** `just act2` (requires act1)
 
 ### 7. Modify a file and view the workspace diff
 
@@ -223,31 +194,7 @@ Switched to branch 'master'
 
 ## Act 3 — Merge
 
-<details>
-<summary><b>Run all of Act 3 at once</b></summary>
-
-```sh
-bit merge feature -m "Merge feature" \
-&& echo "master's version" > app.txt \
-&& bit add . \
-&& bit commit -m "Master change" \
-&& bit checkout feature \
-&& echo "feature's version" > app.txt \
-&& bit add . \
-&& bit commit -m "Feature change" \
-&& bit checkout master \
-; bit merge feature -m "Merge diverged" \
-; cat app.txt \
-&& bit status --porcelain \
-&& echo "resolved version" > app.txt \
-&& bit add app.txt \
-&& bit merge --continue \
-&& bit log --oneline
-```
-
-> The `;` after the merge lets the script continue past the expected conflict error.
-
-</details>
+> **Quick run:** `just act3` (requires act1 + act2)
 
 ### 16. Fast-forward merge
 
@@ -365,7 +312,7 @@ bit log --oneline
 ## Cleanup
 
 ```sh
-rm -rf /tmp/bit-demo
+just clean
 ```
 
 ## Command Reference
