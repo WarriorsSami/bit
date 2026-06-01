@@ -1,10 +1,19 @@
 use crate::artifacts::index::{HEADER_SIZE, SIGNATURE, VERSION};
 use crate::artifacts::objects::object::{Packable, Unpackable};
-use anyhow::anyhow;
 use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
 use derive_new::new;
 use std::io::{BufRead, Write};
+
+#[derive(Debug, thiserror::Error)]
+pub enum IndexHeaderError {
+    #[error("invalid index header size: expected at least {expected} bytes, got {actual}")]
+    InvalidSize { expected: usize, actual: usize },
+    #[error("invalid marker in index header")]
+    InvalidMarker,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 #[derive(Debug, Clone, new)]
 pub struct IndexHeader {
@@ -42,11 +51,15 @@ impl Unpackable for IndexHeader {
             .collect::<Result<Vec<u8>, std::io::Error>>()?;
 
         if bytes.len() < HEADER_SIZE {
-            return Err(anyhow!("Invalid header size"));
+            return Err(IndexHeaderError::InvalidSize {
+                expected: HEADER_SIZE,
+                actual: bytes.len(),
+            }
+            .into());
         }
 
-        let marker = String::from_utf8(bytes[0..4].to_vec())
-            .map_err(|_| anyhow!("Invalid marker in index header"))?;
+        let marker =
+            String::from_utf8(bytes[0..4].to_vec()).map_err(|_| IndexHeaderError::InvalidMarker)?;
         let version = byteorder::NetworkEndian::read_u32(&bytes[4..8]);
         let entries_count = byteorder::NetworkEndian::read_u32(&bytes[8..12]);
 

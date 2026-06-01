@@ -11,9 +11,9 @@
 //! Metadata includes both file status (mode, size) and timestamps (mtime, ctime)
 //! which enable fast change detection without reading file content.
 
-use crate::artifacts::index::entry_mode::{EntryMode, FileMode};
+use crate::artifacts::index::entry_mode::{EntryMode, EntryModeError, FileMode};
 use crate::artifacts::objects::object::{Packable, Unpackable};
-use crate::artifacts::objects::object_id::ObjectId;
+use crate::artifacts::objects::object_id::{ObjectId, ObjectIdError};
 use byteorder::{ByteOrder, WriteBytesExt};
 use bytes::Bytes;
 use is_executable::IsExecutable;
@@ -22,6 +22,26 @@ use std::fs::Metadata;
 use std::io::{BufRead, Write};
 use std::os::unix::prelude::MetadataExt;
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, thiserror::Error)]
+pub enum IndexEntryError {
+    #[error("invalid index entry size: expected at least {expected} bytes, got {actual}")]
+    InvalidSize { expected: usize, actual: usize },
+    #[error("missing null terminator in entry name")]
+    MissingNullTerminator,
+    #[error("invalid UTF-8 in entry name")]
+    InvalidUtf8,
+    #[error("invalid file name in entry")]
+    InvalidFileName,
+    #[error("invalid entry name for serialization")]
+    InvalidEntryName,
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    ObjectId(#[from] ObjectIdError),
+    #[error(transparent)]
+    EntryMode(#[from] EntryModeError),
+}
 
 /// Merge stage for an index entry.
 ///
@@ -103,15 +123,14 @@ impl IndexEntry {
         }
     }
 
-    pub fn basename(&self) -> anyhow::Result<&str> {
+    pub fn basename(&self) -> Result<&str, IndexEntryError> {
         self.name
             .file_name()
             .and_then(|name| name.to_str())
-            .ok_or_else(|| anyhow::anyhow!("Invalid file name"))
+            .ok_or(IndexEntryError::InvalidFileName)
     }
 
-    // TODO: Stop after reaching the repository's root
-    pub fn parent_dirs(&self) -> anyhow::Result<Vec<&Path>> {
+    pub fn parent_dirs(&self) -> Vec<&Path> {
         let mut dirs = Vec::new();
         let mut parent = self.name.parent();
 
@@ -120,9 +139,7 @@ impl IndexEntry {
             parent = new_parent.parent();
         }
         dirs.reverse();
-        let dirs = dirs[1..].to_vec();
-
-        Ok(dirs)
+        dirs[1..].to_vec()
     }
 
     pub fn stat_match(&self, other: &EntryMetadata) -> bool {
@@ -203,7 +220,7 @@ impl Packable for IndexEntry {
         let entry_name = String::from(
             self.name
                 .to_str()
-                .ok_or_else(|| anyhow::anyhow!("Invalid entry name"))?,
+                .ok_or(IndexEntryError::InvalidEntryName)?,
         );
         let entry_mode = self.metadata.mode.as_u32();
 
@@ -242,7 +259,11 @@ impl Unpackable for IndexEntry {
             .collect::<Result<Vec<u8>, std::io::Error>>()?;
 
         if bytes.len() < ENTRY_MIN_SIZE {
-            return Err(anyhow::anyhow!("Invalid index entry size"));
+            return Err(IndexEntryError::InvalidSize {
+                expected: ENTRY_MIN_SIZE,
+                actual: bytes.len(),
+            }
+            .into());
         }
 
         let ctime = byteorder::NetworkEndian::read_u32(&bytes[0..4]) as i64;
@@ -251,7 +272,7 @@ impl Unpackable for IndexEntry {
         let mtime_nsec = byteorder::NetworkEndian::read_u32(&bytes[12..16]) as i64;
         let dev = byteorder::NetworkEndian::read_u32(&bytes[16..20]) as u64;
         let ino = byteorder::NetworkEndian::read_u32(&bytes[20..24]) as u64;
-        let mode: EntryMode = byteorder::NetworkEndian::read_u32(&bytes[24..28]).into();
+        let mode: EntryMode = byteorder::NetworkEndian::read_u32(&bytes[24..28]).try_into()?;
         let uid = byteorder::NetworkEndian::read_u32(&bytes[28..32]);
         let gid = byteorder::NetworkEndian::read_u32(&bytes[32..36]);
         let size = byteorder::NetworkEndian::read_u32(&bytes[36..40]) as u64;
@@ -264,11 +285,10 @@ impl Unpackable for IndexEntry {
         let name_end = bytes[62..]
             .iter()
             .position(|&b| b == 0)
-            .ok_or_else(|| anyhow::anyhow!("Missing null terminator in entry name"))?;
+            .ok_or(IndexEntryError::MissingNullTerminator)?;
         let name_bytes = &bytes[62..62 + name_end];
         let name = PathBuf::from(
-            std::str::from_utf8(name_bytes)
-                .map_err(|_| anyhow::anyhow!("Invalid UTF-8 in entry name"))?,
+            std::str::from_utf8(name_bytes).map_err(|_| IndexEntryError::InvalidUtf8)?,
         );
 
         Ok(IndexEntry {
@@ -293,9 +313,9 @@ impl Unpackable for IndexEntry {
 }
 
 impl TryFrom<(&Path, Metadata)> for EntryMetadata {
-    type Error = anyhow::Error;
+    type Error = IndexEntryError;
 
-    fn try_from((file_path, metadata): (&Path, Metadata)) -> Result<Self, Self::Error> {
+    fn try_from((file_path, metadata): (&Path, Metadata)) -> Result<Self, IndexEntryError> {
         let mode = if metadata.is_dir() {
             EntryMode::Directory
         } else {
@@ -345,7 +365,7 @@ mod tests {
     fn test_entry_parent_dirs(oid: ObjectId, entry_metadata: EntryMetadata) {
         let entry = IndexEntry::new(PathBuf::from("a/b/c"), oid, entry_metadata);
 
-        let dirs = entry.parent_dirs().unwrap();
+        let dirs = entry.parent_dirs();
         pretty_assertions::assert_eq!(dirs, vec![Path::new("a"), Path::new("a/b")]);
     }
 
@@ -353,7 +373,7 @@ mod tests {
     fn test_entry_parent_dirs_root(oid: ObjectId, entry_metadata: EntryMetadata) {
         let entry = IndexEntry::new(PathBuf::from("a"), oid, entry_metadata);
 
-        let dirs = entry.parent_dirs().unwrap();
+        let dirs = entry.parent_dirs();
         pretty_assertions::assert_eq!(dirs, Vec::<&Path>::new());
     }
 

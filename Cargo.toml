@@ -11,6 +11,7 @@ debug_merge = []
 
 [dependencies]
 anyhow = "1.0.98"
+thiserror = "2"
 clap = { version = "4.5.40", features = ["derive"] }
 flate2 = "1.1.2"
 sha1 = "0.10.6"

@@ -165,7 +165,7 @@ impl Index {
         let entries_count = self.parse_header(&mut reader)?;
         self.parse_entries(entries_count, &mut reader)?;
 
-        reader.verify()
+        Ok(reader.verify()?)
     }
 
     /// Check if a path is tracked directly in the index (stage-0 entry or directory)
@@ -230,7 +230,7 @@ impl Index {
     /// - Adding stage-1/2/3 evicts stage-0 for the same path
     fn discard_conflicts(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
         entry
-            .parent_dirs()?
+            .parent_dirs()
             .into_iter()
             .map(|parent| self.remove_entry(parent))
             .collect::<Result<Vec<_>, _>>()?;
@@ -252,7 +252,7 @@ impl Index {
 
     fn store_entry(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
         let entry_parents = entry
-            .parent_dirs()?
+            .parent_dirs()
             .into_iter()
             .map(|parent| parent.to_owned().into_boxed_path())
             .collect::<BTreeSet<_>>();

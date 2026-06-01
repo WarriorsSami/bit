@@ -16,6 +16,16 @@ use crate::artifacts::objects::OBJECT_ID_LENGTH;
 use std::io;
 use std::path::PathBuf;
 
+#[derive(Debug, thiserror::Error)]
+pub enum ObjectIdError {
+    #[error("invalid object ID length: expected {expected}, got {actual}")]
+    InvalidLength { expected: usize, actual: usize },
+    #[error("invalid hex characters in object ID: {0}")]
+    InvalidHexCharacters(String),
+    #[error(transparent)]
+    Io(#[from] io::Error),
+}
+
 /// Git object identifier (SHA-1 hash)
 ///
 /// A 40-character hexadecimal string that uniquely identifies an object.
@@ -33,12 +43,15 @@ impl ObjectId {
     /// # Returns
     ///
     /// Validated ObjectId or error if invalid length/characters
-    pub fn try_parse(id: String) -> anyhow::Result<Self> {
+    pub fn try_parse(id: String) -> Result<Self, ObjectIdError> {
         if id.len() != OBJECT_ID_LENGTH {
-            return Err(anyhow::anyhow!("Invalid object ID length: {}", id.len()));
+            return Err(ObjectIdError::InvalidLength {
+                expected: OBJECT_ID_LENGTH,
+                actual: id.len(),
+            });
         }
         if !id.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(anyhow::anyhow!("Invalid object ID characters: {}", id));
+            return Err(ObjectIdError::InvalidHexCharacters(id));
         }
         Ok(Self(id.to_string()))
     }
@@ -51,7 +64,7 @@ impl ObjectId {
     /// # Arguments
     ///
     /// * `writer` - Destination for the binary data
-    pub fn write_h40_to<W: io::Write>(&self, writer: &mut W) -> anyhow::Result<()> {
+    pub fn write_h40_to<W: io::Write>(&self, writer: &mut W) -> Result<(), ObjectIdError> {
         let hex40 = self.as_ref();
 
         // Process a nibble at a time
@@ -72,7 +85,7 @@ impl ObjectId {
     /// # Arguments
     ///
     /// * `reader` - Source of the binary data
-    pub fn read_h40_from<R: io::Read + ?Sized>(reader: &mut R) -> anyhow::Result<Self> {
+    pub fn read_h40_from<R: io::Read + ?Sized>(reader: &mut R) -> Result<Self, ObjectIdError> {
         let mut hex40 = String::with_capacity(OBJECT_ID_LENGTH);
         let mut buffer = [0; 1];
 

@@ -177,7 +177,7 @@ impl Workspace {
     pub fn stat_file(&self, file_path: &Path) -> anyhow::Result<EntryMetadata> {
         let metadata = std::fs::metadata(self.path.join(file_path))?;
 
-        (file_path, metadata).try_into()
+        Ok((file_path, metadata).try_into()?)
     }
 
     // The order of applying migrations is important:

@@ -280,13 +280,13 @@ impl Repository {
             CommitDecoration::Full => ref_name.as_ref().to_string(),
             CommitDecoration::None => unreachable!(),
         };
-        let name = ref_name.to_colored_name(name)?;
+        let name = ref_name.to_colored_name(name);
 
         if let Some(head) = head
             && ref_name == *self.current_ref()
         {
             return Ok(head
-                .to_colored_name(format!("{} -> {name}", head.as_ref()))?
+                .to_colored_name(format!("{} -> {name}", head.as_ref()))
                 .to_string());
         }
 

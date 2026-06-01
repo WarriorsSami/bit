@@ -60,7 +60,7 @@ pub trait Object: Packable {
         hasher.update(&content);
 
         let oid = hasher.finalize();
-        ObjectId::try_parse(format!("{oid:x}"))
+        Ok(ObjectId::try_parse(format!("{oid:x}"))?)
     }
 
     /// Get the file system path where this object would be stored

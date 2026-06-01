@@ -108,7 +108,7 @@ impl<'tree> Tree<'tree> {
         let mut root = Self::default();
 
         for entry in entries {
-            let parents = entry.parent_dirs()?;
+            let parents = entry.parent_dirs();
             root.add_entry(parents, entry)?;
         }
 

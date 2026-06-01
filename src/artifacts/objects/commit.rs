@@ -28,6 +28,22 @@ use anyhow::Context;
 use bytes::Bytes;
 use std::io::{BufRead, Write};
 
+#[derive(Debug, thiserror::Error)]
+pub enum AuthorParseError {
+    #[error("invalid author format: expected 'name <email> timestamp timezone'")]
+    InvalidFormat,
+    #[error("invalid timestamp in author line")]
+    InvalidTimestamp,
+    #[error("invalid timezone in author line: {0}")]
+    InvalidTimezone(String),
+    #[error("missing '<' delimiter in author line")]
+    MissingOpenAngle,
+    #[error("missing '>' delimiter in author line")]
+    MissingCloseAngle,
+    #[error("{0} environment variable not set")]
+    EnvVarMissing(String),
+}
+
 /// Author or committer information
 ///
 /// Contains name, email, and timestamp with timezone information.
@@ -104,9 +120,11 @@ impl Author {
     /// # Returns
     ///
     /// Author struct populated from environment
-    pub fn load_from_env() -> anyhow::Result<Self> {
-        let name = std::env::var("GIT_AUTHOR_NAME").context("GIT_AUTHOR_NAME not set")?;
-        let email = std::env::var("GIT_AUTHOR_EMAIL").context("GIT_AUTHOR_EMAIL not set")?;
+    pub fn load_from_env() -> Result<Self, AuthorParseError> {
+        let name = std::env::var("GIT_AUTHOR_NAME")
+            .map_err(|_| AuthorParseError::EnvVarMissing("GIT_AUTHOR_NAME".to_string()))?;
+        let email = std::env::var("GIT_AUTHOR_EMAIL")
+            .map_err(|_| AuthorParseError::EnvVarMissing("GIT_AUTHOR_EMAIL".to_string()))?;
         let timestamp = std::env::var("GIT_AUTHOR_DATE").ok().and_then(|date_str| {
             chrono::DateTime::parse_from_rfc2822(&date_str)
                 .or_else(|_| chrono::DateTime::parse_from_str(&date_str, "%Y-%m-%d %H:%M:%S %z"))
@@ -137,40 +155,37 @@ impl Author {
 }
 
 impl TryFrom<&str> for Author {
-    type Error = anyhow::Error;
+    type Error = AuthorParseError;
 
-    fn try_from(value: &str) -> Result<Self, Self::Error> {
-        // Format: "name <email> timestamp timezone"
-        // Split from right to get timezone and timestamp first
+    fn try_from(value: &str) -> Result<Self, AuthorParseError> {
         let parts: Vec<&str> = value.rsplitn(3, ' ').collect();
         if parts.len() < 3 {
-            return Err(anyhow::anyhow!("Invalid author format"));
+            return Err(AuthorParseError::InvalidFormat);
         }
 
         let timezone = parts[0];
         let timestamp = parts[1]
             .parse::<i64>()
-            .map_err(|_| anyhow::anyhow!("Invalid timestamp"))?;
-        let name_email_part = parts[2]; // "name <email>"
+            .map_err(|_| AuthorParseError::InvalidTimestamp)?;
+        let name_email_part = parts[2];
 
-        // Extract email from within angle brackets
         let email_start = name_email_part
             .find('<')
-            .ok_or_else(|| anyhow::anyhow!("Invalid author format: missing '<'"))?;
+            .ok_or(AuthorParseError::MissingOpenAngle)?;
         let email_end = name_email_part
             .find('>')
-            .ok_or_else(|| anyhow::anyhow!("Invalid author format: missing '>'"))?;
+            .ok_or(AuthorParseError::MissingCloseAngle)?;
 
         let name = name_email_part[..email_start].trim().to_string();
         let email = name_email_part[email_start + 1..email_end].to_string();
 
         let datetime = chrono::DateTime::from_timestamp(timestamp, 0)
-            .ok_or_else(|| anyhow::anyhow!("Invalid timestamp"))?;
+            .ok_or(AuthorParseError::InvalidTimestamp)?;
         let datetime = chrono::DateTime::parse_from_str(
             &format!("{} {}", datetime.format("%Y-%m-%d %H:%M:%S"), timezone),
             "%Y-%m-%d %H:%M:%S %z",
         )
-        .map_err(|_| anyhow::anyhow!("Invalid timezone"))?;
+        .map_err(|_| AuthorParseError::InvalidTimezone(timezone.to_string()))?;
 
         Ok(Author {
             name,
