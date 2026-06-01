@@ -79,7 +79,7 @@ fn write_commit_object_successfully_for_nested_project() -> Result<(), Box<dyn s
         .assert()
         .success()
         .stdout(predicate::str::is_match(
-            r"^\[.*\(root-commit\) [0-9a-f]{7}\] .+$",
+            r"^\[.*\(root-commit\) [0-9a-f]{7}\] .+\n$",
         )?)
         .get_output()
         .stdout

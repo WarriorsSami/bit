@@ -14,7 +14,7 @@ fn init_repository_successfully() -> Result<(), Box<dyn std::error::Error>> {
     sut.assert()
         .success()
         .stdout(predicate::str::is_match(
-            r"^Initialized empty Git repository in .+$",
+            r"^Initialized empty Git repository in .+\n$",
         )?)
         .stdout(predicate::str::contains(dir_absolute_path));
 

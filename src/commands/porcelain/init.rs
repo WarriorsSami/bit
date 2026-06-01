@@ -35,7 +35,7 @@ impl Repository {
             fs::write(index.path(), b"").context("Failed to create .git/index file")?;
         }
 
-        write!(
+        writeln!(
             self.writer(),
             "Initialized empty Git repository in {}",
             self.path().display()

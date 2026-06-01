@@ -43,7 +43,7 @@ impl Repository {
         self.refs().clear_merge_head()?;
         self.refs().clear_merge_msg()?;
 
-        write!(
+        writeln!(
             self.writer(),
             "[{}{}] {}",
             is_root,

@@ -1,6 +1,6 @@
 # bit — 2-Minute Interactive Demo
 
-A quick walkthrough of every porcelain command: `init`, `add`, `status`, `commit`, `diff`, `branch`, `checkout`, `log`, and `merge`.
+A quick walkthrough of every porcelain command: `init`, `add`, `status`, `commit`, `diff`, `branch`, `checkout`, `log`, and `merge` — plus a compatibility act showing that `git` reads everything `bit` creates.
 
 ## Setup
 
@@ -11,10 +11,11 @@ cargo build --release
 Run the full demo, or individual acts:
 
 ```sh
-just demo          # build + act1 + act2 + act3
+just demo          # build + act1 + act2 + act3 + act4
 just act1          # just Act 1
 just act2          # just Act 2 (requires act1)
 just act3          # just Act 3 (requires act1 + act2)
+just act4          # just Act 4 (requires act1 + act2 + act3)
 just clean         # remove /tmp/bit-demo
 ```
 
@@ -306,6 +307,134 @@ bit log --oneline
 ```
 
 > **Rollback:** Delete `.git/MERGE_HEAD` and `.git/MERGE_MSG` to abort a conflicted merge.
+
+---
+
+## Act 4 — bit-git Compatibility
+
+> **Quick run:** `just act4` (requires act1 + act2 + act3)
+
+Everything `bit` writes is native Git — objects, refs, index, and merge commits are all standard format. Your existing `git` tools work without any conversion.
+
+### 25. git reads bit's full history
+
+```sh
+git log --oneline --graph --all
+```
+
+```
+*   <sha> Merge diverged
+|\
+| * <sha> Feature change
+* | <sha> Master change
+|/
+* <sha> Add feature
+* <sha> Update app
+* <sha> Initial commit
+```
+
+Git sees the complete DAG, including the merge topology from Act 3.
+
+### 26. git inspects bit's objects
+
+```sh
+git cat-file -p HEAD
+```
+
+```
+tree <sha>
+parent <sha>
+parent <sha>
+author Demo User <demo@example.com> 1704103200 +0000
+committer Demo User <demo@example.com> 1704103200 +0000
+
+Merge diverged
+```
+
+Both parents of the merge commit are intact — first parent is the master lineage, second is the feature branch.
+
+### 27. git sees bit-created branches
+
+```sh
+git branch -v
+```
+
+```
+  feature <sha> Feature change
+* master  <sha> Merge diverged
+```
+
+### 28. git diff works on a bit repo
+
+```sh
+echo "git-side change" >> app.txt
+git diff
+```
+
+```
+diff --git a/app.txt b/app.txt
+index <oid>..<oid> 100644
+--- a/app.txt
++++ b/app.txt
+@@ -1 +1,2 @@
+ resolved version
++git-side change
+```
+
+### 29. git commits on top of bit's history
+
+```sh
+git add app.txt
+git commit -m "Git-side edit"
+```
+
+```
+[master <sha>] Git-side edit
+```
+
+The git commit chains onto bit's merge commit seamlessly.
+
+### 30. Mixed bit + git history
+
+```sh
+git log --oneline --graph --all
+```
+
+```
+* <sha> Git-side edit
+*   <sha> Merge diverged
+|\
+| * <sha> Feature change
+* | <sha> Master change
+|/
+* <sha> Add feature
+* <sha> Update app
+* <sha> Initial commit
+```
+
+bit-created and git-created commits are indistinguishable in the log.
+
+### 31. git clone produces a faithful copy
+
+```sh
+git clone /tmp/bit-demo /tmp/bit-demo-clone
+cd /tmp/bit-demo-clone
+git log --oneline --graph --all
+```
+
+```
+* <sha> Git-side edit
+*   <sha> Merge diverged
+|\
+| * <sha> Feature change
+* | <sha> Master change
+|/
+* <sha> Add feature
+* <sha> Update app
+* <sha> Initial commit
+```
+
+The full history, branches, and objects survive a clone — bit repos are real Git repos.
 
 ---
 
