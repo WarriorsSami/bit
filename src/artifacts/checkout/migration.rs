@@ -357,20 +357,22 @@ impl<'r> Migration<'r> {
                     .get(action_type)
                     .ok_or_else(|| anyhow::anyhow!("Invalid action type"))?
                     .iter()
-                    .map(|(file_path, entry)| match action_type {
-                        ActionType::Delete => self.index.remove(file_path.to_path_buf()),
-                        ActionType::Add | ActionType::Modify => {
-                            if let Some(entry) = entry {
-                                let stat = self.repository.workspace().stat_file(file_path)?;
-                                self.index.add(IndexEntry::new(
-                                    file_path.to_path_buf(),
-                                    entry.oid.clone(),
-                                    stat,
-                                ))
-                            } else {
-                                Err(anyhow::anyhow!(
-                                    "Entry must be provided for Add and Modify actions"
-                                ))
+                    .map(|(file_path, entry)| -> anyhow::Result<()> {
+                        match action_type {
+                            ActionType::Delete => Ok(self.index.remove(file_path.to_path_buf())?),
+                            ActionType::Add | ActionType::Modify => {
+                                if let Some(entry) = entry {
+                                    let stat = self.repository.workspace().stat_file(file_path)?;
+                                    Ok(self.index.add(IndexEntry::new(
+                                        file_path.to_path_buf(),
+                                        entry.oid.clone(),
+                                        stat,
+                                    ))?)
+                                } else {
+                                    Err(anyhow::anyhow!(
+                                        "Entry must be provided for Add and Modify actions"
+                                    ))
+                                }
                             }
                         }
                     })

@@ -15,18 +15,35 @@
 //! - `entries`: Maps (file path, stage) to their index entries
 //! - `children`: Maps directory paths to their children for efficient tree operations
 
-use crate::artifacts::index::checksum::Checksum;
+use crate::artifacts::index::checksum::{Checksum, ChecksumError};
 use crate::artifacts::index::index_entry::{
-    ENTRY_BLOCK, ENTRY_MIN_SIZE, EntryMetadata, IndexEntry, MergeStage,
+    ENTRY_BLOCK, ENTRY_MIN_SIZE, EntryMetadata, IndexEntry, IndexEntryError, MergeStage,
 };
-use crate::artifacts::index::index_header::IndexHeader;
+use crate::artifacts::index::index_header::{IndexHeader, IndexHeaderError};
 use crate::artifacts::index::{HEADER_SIZE, SIGNATURE, VERSION};
 use crate::artifacts::objects::object::{Packable, Unpackable};
-use anyhow::anyhow;
 use bytes::Bytes;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::DerefMut;
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, thiserror::Error)]
+pub enum IndexError {
+    #[error(transparent)]
+    Header(#[from] IndexHeaderError),
+    #[error(transparent)]
+    Entry(#[from] IndexEntryError),
+    #[error(transparent)]
+    Checksum(#[from] ChecksumError),
+    #[error("invalid index file signature")]
+    InvalidSignature,
+    #[error("unsupported index file version: {0}")]
+    UnsupportedVersion(u32),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
 
 /// Git index (staging area)
 ///
@@ -113,7 +130,7 @@ impl Index {
     }
 
     /// Add conflict-stage entries for a path, removing any clean stage-0 entry first
-    pub fn add_conflict_entries(&mut self, entries: Vec<IndexEntry>) -> anyhow::Result<()> {
+    pub fn add_conflict_entries(&mut self, entries: Vec<IndexEntry>) -> Result<(), IndexError> {
         if let Some(first) = entries.first() {
             // Remove the clean stage-0 entry if it exists
             self.entries
@@ -144,7 +161,7 @@ impl Index {
     /// # Locking
     ///
     /// Acquires a shared lock on the index file during reading.
-    pub fn rehydrate(&mut self) -> anyhow::Result<()> {
+    pub fn rehydrate(&mut self) -> Result<(), IndexError> {
         if !self.path().exists() {
             self.clear();
             // create the index file
@@ -178,20 +195,17 @@ impl Index {
             || self.children.contains_key(path)
     }
 
-    fn parse_header(&self, reader: &mut Checksum) -> anyhow::Result<u32> {
+    fn parse_header(&self, reader: &mut Checksum) -> Result<u32, IndexError> {
         let header_bytes = reader.read(HEADER_SIZE)?;
         let header_reader = std::io::Cursor::new(header_bytes.clone());
         let header = IndexHeader::deserialize(header_reader)?;
 
         if header.marker != SIGNATURE {
-            return Err(anyhow!("Invalid index file signature"));
+            return Err(IndexError::InvalidSignature);
         }
 
         if header.version != VERSION {
-            return Err(anyhow!(
-                "Unsupported index file version: {}",
-                header.version
-            ));
+            return Err(IndexError::UnsupportedVersion(header.version));
         }
 
         Ok(header.entries_count)
@@ -200,7 +214,11 @@ impl Index {
     /// Parse all entries from the index file
     ///
     /// Reads each entry, handling variable-length paths with 8-byte alignment.
-    fn parse_entries(&mut self, entries_count: u32, reader: &mut Checksum) -> anyhow::Result<()> {
+    fn parse_entries(
+        &mut self,
+        entries_count: u32,
+        reader: &mut Checksum,
+    ) -> Result<(), IndexError> {
         for _ in 0..entries_count {
             let entry_bytes = reader.read(ENTRY_MIN_SIZE)?;
             let mut entry_bytes = entry_bytes.to_vec();
@@ -228,7 +246,7 @@ impl Index {
     /// Also enforces the clean XOR conflicted invariant:
     /// - Adding stage-0 evicts stages 1/2/3 for the same path
     /// - Adding stage-1/2/3 evicts stage-0 for the same path
-    fn discard_conflicts(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
+    fn discard_conflicts(&mut self, entry: &IndexEntry) -> Result<(), IndexError> {
         entry
             .parent_dirs()
             .into_iter()
@@ -250,7 +268,7 @@ impl Index {
         Ok(())
     }
 
-    fn store_entry(&mut self, entry: &IndexEntry) -> anyhow::Result<()> {
+    fn store_entry(&mut self, entry: &IndexEntry) -> Result<(), IndexError> {
         let entry_parents = entry
             .parent_dirs()
             .into_iter()
@@ -272,7 +290,7 @@ impl Index {
         Ok(())
     }
 
-    fn remove_children(&mut self, path_name: &Path) -> anyhow::Result<()> {
+    fn remove_children(&mut self, path_name: &Path) -> Result<(), IndexError> {
         if let Some(children) = self.children.remove(path_name) {
             for child in children {
                 self.remove_entry(&child)?;
@@ -283,7 +301,7 @@ impl Index {
     }
 
     /// Remove all stage entries (0-3) for a given path
-    fn remove_entry(&mut self, path_name: &Path) -> anyhow::Result<()> {
+    fn remove_entry(&mut self, path_name: &Path) -> Result<(), IndexError> {
         let mut removed_any = false;
         for stage in [
             MergeStage::Clean,
@@ -316,7 +334,7 @@ impl Index {
         Ok(())
     }
 
-    pub fn add(&mut self, entry: IndexEntry) -> anyhow::Result<()> {
+    pub fn add(&mut self, entry: IndexEntry) -> Result<(), IndexError> {
         self.discard_conflicts(&entry)?;
         self.store_entry(&entry)?;
 
@@ -326,7 +344,7 @@ impl Index {
         Ok(())
     }
 
-    pub fn remove(&mut self, path: PathBuf) -> anyhow::Result<()> {
+    pub fn remove(&mut self, path: PathBuf) -> Result<(), IndexError> {
         self.remove_entry(&path)?;
         self.remove_children(&path)?;
 
@@ -336,7 +354,7 @@ impl Index {
         Ok(())
     }
 
-    pub fn write_updates(&mut self) -> anyhow::Result<()> {
+    pub fn write_updates(&mut self) -> Result<(), IndexError> {
         let mut index_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)

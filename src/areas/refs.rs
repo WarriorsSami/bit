@@ -17,16 +17,63 @@
 //! - A 40-character SHA-1 hash (direct reference)
 //! - `ref: <path>` for symbolic references
 
-use crate::artifacts::branch::branch_name::{BranchName, SymRefName};
-use crate::artifacts::objects::object_id::ObjectId;
-use anyhow::Context;
+use crate::artifacts::branch::branch_name::{BranchName, BranchNameError, SymRefName};
+use crate::artifacts::objects::object_id::{ObjectId, ObjectIdError};
 use derive_new::new;
 use file_guard::Lock;
 use std::collections::HashMap;
 use std::io::Write;
 use std::ops::DerefMut;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
+
+#[derive(Debug, thiserror::Error)]
+pub enum RefsError {
+    #[error(transparent)]
+    ObjectId(#[from] ObjectIdError),
+    #[error(transparent)]
+    BranchName(#[from] BranchNameError),
+    #[error(transparent)]
+    Regex(#[from] regex::Error),
+    #[error("branch {0} not found")]
+    BranchNotFound(String),
+    #[error("branch {0} already exists")]
+    BranchAlreadyExists(String),
+    #[error("branch {0} does not exist")]
+    BranchDoesNotExist(String),
+    #[error("failed to open ref file at {path}")]
+    OpenRefFile {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to read ref file at {path}")]
+    ReadRefFile {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to create parent directories for ref at {path}")]
+    CreateRefDir {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to delete branch file at {path}")]
+    DeleteBranch {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to remove empty branch directory at {path}")]
+    RemoveBranchDir {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+}
 
 /// Git references manager
 ///
@@ -59,7 +106,7 @@ enum SymRefOrOid {
 }
 
 impl SymRefOrOid {
-    fn read_symref_or_oid(path: &Path) -> anyhow::Result<Option<SymRefOrOid>> {
+    fn read_symref_or_oid(path: &Path) -> Result<Option<SymRefOrOid>, RefsError> {
         if !path.exists() {
             return Ok(None);
         }
@@ -94,7 +141,7 @@ impl Refs {
     /// # Returns
     ///
     /// true if the branch is current, false otherwise
-    pub fn is_current_branch(&self, branch_name: &BranchName) -> anyhow::Result<bool> {
+    pub fn is_current_branch(&self, branch_name: &BranchName) -> Result<bool, RefsError> {
         let current_ref = self.current_ref(None)?;
 
         Ok(branch_name == &BranchName::try_parse_sym_ref_name(&current_ref)?)
@@ -107,7 +154,7 @@ impl Refs {
     /// # Returns
     ///
     /// Some(ObjectId) if the ref exists and points to a commit, None otherwise
-    pub fn read_oid(&self, sym_ref_name: &SymRefName) -> anyhow::Result<Option<ObjectId>> {
+    pub fn read_oid(&self, sym_ref_name: &SymRefName) -> Result<Option<ObjectId>, RefsError> {
         self.read_ref(BranchName::try_parse_sym_ref_name(sym_ref_name)?)
     }
 
@@ -123,7 +170,7 @@ impl Refs {
     /// # Returns
     ///
     /// The final symbolic reference in the chain
-    pub fn current_ref(&self, source: Option<SymRefName>) -> anyhow::Result<SymRefName> {
+    pub fn current_ref(&self, source: Option<SymRefName>) -> Result<SymRefName, RefsError> {
         let source = source.unwrap_or_else(|| SymRefName::new(HEAD_REF_NAME.to_string()));
 
         let ref_content =
@@ -138,7 +185,7 @@ impl Refs {
     /// Read a symbolic reference, following indirection
     ///
     /// Recursively follows symbolic references until finding an OID.
-    fn read_symref(&self, path: &Path) -> anyhow::Result<Option<ObjectId>> {
+    fn read_symref(&self, path: &Path) -> Result<Option<ObjectId>, RefsError> {
         let ref_content = SymRefOrOid::read_symref_or_oid(path)?;
 
         match ref_content {
@@ -158,12 +205,15 @@ impl Refs {
     /// # Locking
     ///
     /// Acquires exclusive lock on the reference file during update.
-    fn update_symref(&self, path: &Path, oid: ObjectId) -> anyhow::Result<()> {
+    fn update_symref(&self, path: &Path, oid: ObjectId) -> Result<(), RefsError> {
         let mut ref_file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .open(path)
-            .with_context(|| format!("failed to open ref file at {:?}", path))?;
+            .map_err(|e| RefsError::OpenRefFile {
+                path: path.display().to_string(),
+                source: e,
+            })?;
         let mut lock = file_guard::lock(&mut ref_file, Lock::Exclusive, 0, 1)?;
 
         let ref_content = SymRefOrOid::read_symref_or_oid(path)?;
@@ -180,64 +230,68 @@ impl Refs {
         }
     }
 
-    pub fn set_head(&self, revision: &str, raw_ref: String) -> anyhow::Result<()> {
+    pub fn set_head(&self, revision: &str, raw_ref: String) -> Result<(), RefsError> {
         let revision_path = self.heads_path().join(revision).into_boxed_path();
 
         if revision_path.exists() {
-            self.update_ref_file(self.head_path(), format!("ref: refs/heads/{}", revision))
+            self.update_ref_file(
+                self.head_path().into(),
+                format!("ref: refs/heads/{}", revision),
+            )
         } else {
-            self.update_ref_file(self.head_path(), raw_ref)
+            self.update_ref_file(self.head_path().into(), raw_ref)
         }
     }
 
-    pub fn update_head(&self, oid: ObjectId) -> anyhow::Result<()> {
+    pub fn update_head(&self, oid: ObjectId) -> Result<(), RefsError> {
         self.update_symref(self.head_path().as_ref(), oid)
     }
 
-    pub fn read_head(&self) -> anyhow::Result<Option<ObjectId>> {
+    pub fn read_head(&self) -> Result<Option<ObjectId>, RefsError> {
         self.read_symref(&self.head_path())
     }
 
-    pub fn update_ref_file(&self, path: Box<Path>, raw_ref: String) -> anyhow::Result<()> {
-        // create all the parent directories if they don't exist
-        std::fs::create_dir_all(path.parent().with_context(|| {
-            format!(
-                "failed to create parent directories for ref file at {:?}",
-                path
-            )
-        })?)?;
+    pub fn update_ref_file(&self, path: PathBuf, raw_ref: String) -> Result<(), RefsError> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| RefsError::CreateRefDir {
+                path: parent.display().to_string(),
+                source: e,
+            })?;
+        }
 
-        // open the ref file as WRONLY and CREAT to write commit_id to it
         let mut ref_file = std::fs::OpenOptions::new()
             .write(true)
             .create(true)
             .truncate(true)
-            .open(path.clone())
-            .with_context(|| format!("failed to open ref file at {:?}", path))?;
+            .open(&*path)
+            .map_err(|e| RefsError::OpenRefFile {
+                path: path.display().to_string(),
+                source: e,
+            })?;
         let mut lock = file_guard::lock(&mut ref_file, Lock::Exclusive, 0, 1)?;
         lock.deref_mut().write_all(raw_ref.as_bytes())?;
 
         Ok(())
     }
 
-    pub fn read_ref(&self, branch_name: BranchName) -> anyhow::Result<Option<ObjectId>> {
+    pub fn read_ref(&self, branch_name: BranchName) -> Result<Option<ObjectId>, RefsError> {
         let ref_path = self.find_path_to_branch(branch_name)?;
         self.read_symref(&ref_path)
     }
 
-    fn find_path_to_branch(&self, branch_name: BranchName) -> anyhow::Result<Box<Path>> {
-        // search for the branch ref file in .git, .git/refs and .git/refs/heads
+    fn find_path_to_branch(&self, branch_name: BranchName) -> Result<Box<Path>, RefsError> {
         [self.path.clone(), self.refs_path(), self.heads_path()]
             .iter()
             .map(|base_path| base_path.join(branch_name.as_ref()).into_boxed_path())
             .find(|path| path.exists())
-            .ok_or_else(|| anyhow::anyhow!("branch {} not found", branch_name))
+            .ok_or_else(|| RefsError::BranchNotFound(branch_name.to_string()))
     }
 
-    fn read_ref_file(&self, path: Box<Path>) -> anyhow::Result<Option<ObjectId>> {
-        // read the ref file content
-        let content = std::fs::read_to_string(path.clone())
-            .with_context(|| format!("failed to read ref file at {:?}", path))?;
+    fn read_ref_file(&self, path: PathBuf) -> Result<Option<ObjectId>, RefsError> {
+        let content = std::fs::read_to_string(&*path).map_err(|e| RefsError::ReadRefFile {
+            path: path.display().to_string(),
+            source: e,
+        })?;
         let content = content.trim();
 
         if content.starts_with("ref: ") {
@@ -247,39 +301,41 @@ impl Refs {
         }
     }
 
-    pub fn create_branch(&self, name: BranchName, source_oid: ObjectId) -> anyhow::Result<()> {
-        let branch_path = self.heads_path().join(name.as_ref()).into_boxed_path();
+    pub fn create_branch(&self, name: BranchName, source_oid: ObjectId) -> Result<(), RefsError> {
+        let branch_path = self.heads_path().join(name.as_ref());
 
-        // check whether another branch with the same name already exists
         if branch_path.exists() && !name.is_default_branch() {
-            anyhow::bail!("branch {} already exists", name);
+            return Err(RefsError::BranchAlreadyExists(name.to_string()));
         }
 
         self.update_ref_file(branch_path, source_oid.as_ref().into())
     }
 
-    pub fn delete_branch(&self, name: &BranchName) -> anyhow::Result<ObjectId> {
+    pub fn delete_branch(&self, name: &BranchName) -> Result<ObjectId, RefsError> {
         let branch_path = self.heads_path().join(name.as_ref()).into_boxed_path();
 
         let oid = self.read_symref(branch_path.as_ref())?;
         match oid {
             Some(oid) => {
-                std::fs::remove_file(branch_path.as_ref()).with_context(|| {
-                    format!("failed to delete branch file at {:?}", branch_path)
+                std::fs::remove_file(branch_path.as_ref()).map_err(|e| {
+                    RefsError::DeleteBranch {
+                        path: branch_path.display().to_string(),
+                        source: e,
+                    }
                 })?;
                 self.prune_branch_empty_parent_dirs(branch_path.as_ref())?;
 
                 Ok(oid)
             }
-            None => anyhow::bail!("branch {} does not exist", name),
+            None => Err(RefsError::BranchDoesNotExist(name.to_string())),
         }
     }
 
-    pub fn list_branches(&self) -> anyhow::Result<Vec<SymRefName>> {
+    pub fn list_branches(&self) -> Result<Vec<SymRefName>, RefsError> {
         self.list_refs(self.heads_path().as_ref())
     }
 
-    fn list_refs(&self, path: &Path) -> anyhow::Result<Vec<SymRefName>> {
+    fn list_refs(&self, path: &Path) -> Result<Vec<SymRefName>, RefsError> {
         Ok(WalkDir::new(path)
             .into_iter()
             .filter_map(|entry| entry.ok())
@@ -294,7 +350,7 @@ impl Refs {
             .collect::<Vec<_>>())
     }
 
-    pub fn reverse_refs(&self) -> anyhow::Result<HashMap<ObjectId, Vec<SymRefName>>> {
+    pub fn reverse_refs(&self) -> Result<HashMap<ObjectId, Vec<SymRefName>>, RefsError> {
         Ok(self
             .list_all_refs()?
             .into_iter()
@@ -306,7 +362,7 @@ impl Refs {
             }))
     }
 
-    fn list_all_refs(&self) -> anyhow::Result<Vec<SymRefName>> {
+    fn list_all_refs(&self) -> Result<Vec<SymRefName>, RefsError> {
         Ok(self
             .list_refs(self.refs_path().as_ref())?
             .into_iter()
@@ -314,13 +370,14 @@ impl Refs {
             .collect::<Vec<_>>())
     }
 
-    fn prune_branch_empty_parent_dirs(&self, path: &Path) -> anyhow::Result<()> {
+    fn prune_branch_empty_parent_dirs(&self, path: &Path) -> Result<(), RefsError> {
         if let Some(parent) = path.parent()
             && parent != self.heads_path().as_ref()
             && parent.read_dir()?.next().is_none()
         {
-            std::fs::remove_dir(parent).with_context(|| {
-                format!("failed to remove empty branch directory at {:?}", parent)
+            std::fs::remove_dir(parent).map_err(|e| RefsError::RemoveBranchDir {
+                path: parent.display().to_string(),
+                source: e,
             })?;
             self.prune_branch_empty_parent_dirs(parent)?;
         }
@@ -328,12 +385,12 @@ impl Refs {
         Ok(())
     }
 
-    pub fn write_merge_head(&self, oid: &ObjectId) -> anyhow::Result<()> {
-        let path = self.path.join(MERGE_HEAD).into_boxed_path();
+    pub fn write_merge_head(&self, oid: &ObjectId) -> Result<(), RefsError> {
+        let path = self.path.join(MERGE_HEAD);
         self.update_ref_file(path, oid.as_ref().to_string())
     }
 
-    pub fn read_merge_head(&self) -> anyhow::Result<Option<ObjectId>> {
+    pub fn read_merge_head(&self) -> Result<Option<ObjectId>, RefsError> {
         let path = self.path.join(MERGE_HEAD);
         if !path.exists() {
             return Ok(None);
@@ -346,7 +403,7 @@ impl Refs {
         Ok(Some(ObjectId::try_parse(content.to_string())?))
     }
 
-    pub fn clear_merge_head(&self) -> anyhow::Result<()> {
+    pub fn clear_merge_head(&self) -> Result<(), RefsError> {
         let path = self.path.join(MERGE_HEAD);
         if path.exists() {
             std::fs::remove_file(path)?;
@@ -354,12 +411,12 @@ impl Refs {
         Ok(())
     }
 
-    pub fn write_merge_msg(&self, message: &str) -> anyhow::Result<()> {
-        let path = self.path.join(MERGE_MSG).into_boxed_path();
+    pub fn write_merge_msg(&self, message: &str) -> Result<(), RefsError> {
+        let path = self.path.join(MERGE_MSG);
         self.update_ref_file(path, message.to_string())
     }
 
-    pub fn read_merge_msg(&self) -> anyhow::Result<Option<String>> {
+    pub fn read_merge_msg(&self) -> Result<Option<String>, RefsError> {
         let path = self.path.join(MERGE_MSG);
         if !path.exists() {
             return Ok(None);
@@ -372,7 +429,7 @@ impl Refs {
         Ok(Some(content))
     }
 
-    pub fn clear_merge_msg(&self) -> anyhow::Result<()> {
+    pub fn clear_merge_msg(&self) -> Result<(), RefsError> {
         let path = self.path.join(MERGE_MSG);
         if path.exists() {
             std::fs::remove_file(path)?;

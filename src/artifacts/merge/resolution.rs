@@ -618,7 +618,8 @@ impl<'r> MergeResolution<'r> {
         );
         self.repository
             .workspace()
-            .write_file(path, content.as_bytes())
+            .write_file(path, content.as_bytes())?;
+        Ok(())
     }
 
     fn load_blob_content(&self, oid: &ObjectId) -> anyhow::Result<String> {

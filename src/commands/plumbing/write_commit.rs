@@ -31,7 +31,8 @@ impl Repository {
 
         let tree = Tree::build(index.entries())?;
         let tree_id = tree.object_id()?;
-        let store_tree = &|tree: &Tree| self.database().store(tree.clone());
+        let store_tree =
+            &|tree: &Tree| -> anyhow::Result<()> { Ok(self.database().store(tree.clone())?) };
         tree.traverse(store_tree)?;
 
         Ok(tree_id)

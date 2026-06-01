@@ -14,17 +14,66 @@ use crate::artifacts::diff::tree_diff::TreeDiff;
 use crate::artifacts::log::path_filter::PathFilter;
 use crate::artifacts::objects::blob::Blob;
 use crate::artifacts::objects::commit::{Commit, SlimCommit};
-use crate::artifacts::objects::object::{Object, ObjectBox, Unpackable};
+use crate::artifacts::objects::object::{Object, ObjectBox, ObjectError, Unpackable};
 use crate::artifacts::objects::object_id::ObjectId;
 use crate::artifacts::objects::object_type::ObjectType;
 use crate::artifacts::objects::tree::Tree;
-use anyhow::Context;
 use bytes::Bytes;
 use fake::rand;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::io::{BufRead, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, thiserror::Error)]
+pub enum DatabaseError {
+    #[error(transparent)]
+    Object(#[from] ObjectError),
+    #[error("failed to read object at {path}")]
+    ReadObject {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to write object at {path}")]
+    WriteObject {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to open object file at {path}")]
+    OpenObject {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to rename object file to {path}")]
+    RenameObject {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to create object directory at {path}")]
+    CreateObjectDir {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to compress object")]
+    Compress(#[source] std::io::Error),
+    #[error("failed to decompress object")]
+    Decompress(#[source] std::io::Error),
+    #[error("invalid object path: {0}")]
+    InvalidObjectPath(String),
+    #[error("object {0} is not a commit")]
+    NotACommit(String),
+    #[error("commit {0} not found in cache")]
+    NotInCache(String),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
 
 /// Cached commit data for efficient borrowing
 ///
@@ -83,7 +132,7 @@ impl Database {
         old_oid: Option<&ObjectId>,
         new_oid: Option<&ObjectId>,
         path_filter: &PathFilter,
-    ) -> anyhow::Result<TreeDiff<'_>> {
+    ) -> Result<TreeDiff<'_>, DatabaseError> {
         let mut tree_diff = TreeDiff::new(self);
         tree_diff.compare_oids(old_oid, new_oid, path_filter)?;
         Ok(tree_diff)
@@ -98,7 +147,7 @@ impl Database {
     /// # Returns
     ///
     /// The decompressed object content including header
-    pub fn load(&self, object_id: &ObjectId) -> anyhow::Result<Bytes> {
+    pub fn load(&self, object_id: &ObjectId) -> Result<Bytes, DatabaseError> {
         let object_path = self.path.join(object_id.to_path());
 
         self.read_object(object_path)
@@ -116,22 +165,18 @@ impl Database {
     /// # Returns
     ///
     /// Ok(()) if successful, error if storage fails
-    pub fn store(&self, object: impl Object) -> anyhow::Result<()> {
+    pub fn store(&self, object: impl Object) -> Result<(), DatabaseError> {
         let object_path = self.path.join(object.object_path()?);
         let object_content = object.serialize()?;
 
-        // write the object to disk unless it already exists
-        // otherwise, create the object directory
         if !object_path.exists() {
-            std::fs::create_dir_all(
-                object_path
-                    .parent()
-                    .context(format!("Invalid object path {}", object_path.display()))?,
-            )
-            .context(format!(
-                "Unable to create object directory {}",
-                object_path.display()
-            ))?;
+            std::fs::create_dir_all(object_path.parent().ok_or_else(|| {
+                DatabaseError::InvalidObjectPath(object_path.display().to_string())
+            })?)
+            .map_err(|e| DatabaseError::CreateObjectDir {
+                path: object_path.display().to_string(),
+                source: e,
+            })?;
 
             self.write_object(object_path, object_content)?;
         }
@@ -151,24 +196,15 @@ impl Database {
     /// # Returns
     ///
     /// An ObjectBox enum containing the parsed object
-    pub fn parse_object(&self, object_id: &ObjectId) -> anyhow::Result<ObjectBox<'_>> {
+    pub fn parse_object(&self, object_id: &ObjectId) -> Result<ObjectBox<'_>, DatabaseError> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
         match object_type {
-            ObjectType::Blob => {
-                // parse as blob
-                Ok(ObjectBox::Blob(Box::new(Blob::deserialize(object_reader)?)))
-            }
-            ObjectType::Tree => {
-                // parse as tree
-                Ok(ObjectBox::Tree(Box::new(Tree::deserialize(object_reader)?)))
-            }
-            ObjectType::Commit => {
-                // parse as commit
-                Ok(ObjectBox::Commit(Box::new(Commit::deserialize(
-                    object_reader,
-                )?)))
-            }
+            ObjectType::Blob => Ok(ObjectBox::Blob(Box::new(Blob::deserialize(object_reader)?))),
+            ObjectType::Tree => Ok(ObjectBox::Tree(Box::new(Tree::deserialize(object_reader)?))),
+            ObjectType::Commit => Ok(ObjectBox::Commit(Box::new(Commit::deserialize(
+                object_reader,
+            )?))),
         }
     }
 
@@ -177,7 +213,10 @@ impl Database {
     /// # Returns
     ///
     /// Some(Blob) if the object is a blob, None otherwise
-    pub fn parse_object_as_blob(&self, object_id: &ObjectId) -> anyhow::Result<Option<Blob>> {
+    pub fn parse_object_as_blob(
+        &self,
+        object_id: &ObjectId,
+    ) -> Result<Option<Blob>, DatabaseError> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
         match object_type {
@@ -191,14 +230,14 @@ impl Database {
     /// # Returns
     ///
     /// Some(Tree) if the object is a tree, None otherwise
-    pub fn parse_object_as_tree(&self, object_id: &ObjectId) -> anyhow::Result<Option<Tree<'_>>> {
+    pub fn parse_object_as_tree(
+        &self,
+        object_id: &ObjectId,
+    ) -> Result<Option<Tree<'_>>, DatabaseError> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
         match object_type {
-            ObjectType::Tree => {
-                // parse as tree
-                Ok(Some(Tree::deserialize(object_reader)?))
-            }
+            ObjectType::Tree => Ok(Some(Tree::deserialize(object_reader)?)),
             _ => Ok(None),
         }
     }
@@ -208,14 +247,14 @@ impl Database {
     /// # Returns
     ///
     /// Some(Commit) if the object is a commit, None otherwise
-    pub fn parse_object_as_commit(&self, object_id: &ObjectId) -> anyhow::Result<Option<Commit>> {
+    pub fn parse_object_as_commit(
+        &self,
+        object_id: &ObjectId,
+    ) -> Result<Option<Commit>, DatabaseError> {
         let (object_type, object_reader) = self.parse_object_as_bytes(object_id)?;
 
         match object_type {
-            ObjectType::Commit => {
-                // parse as commit
-                Ok(Some(Commit::deserialize(object_reader)?))
-            }
+            ObjectType::Commit => Ok(Some(Commit::deserialize(object_reader)?)),
             _ => Ok(None),
         }
     }
@@ -223,85 +262,85 @@ impl Database {
     fn parse_object_as_bytes(
         &self,
         object_id: &ObjectId,
-    ) -> anyhow::Result<(ObjectType, impl BufRead)> {
+    ) -> Result<(ObjectType, impl BufRead), DatabaseError> {
         let object_path = self.path.join(object_id.to_path());
         let object_content = self.read_object(object_path)?;
         let mut object_reader = Cursor::new(object_content);
 
-        let object_type = ObjectType::parse_object_type(&mut object_reader)?;
+        let object_type =
+            ObjectType::parse_object_type(&mut object_reader).map_err(ObjectError::from)?;
 
         Ok((object_type, object_reader))
     }
 
-    fn read_object(&self, object_path: PathBuf) -> anyhow::Result<Bytes> {
-        // read the object file
-        let object_content = std::fs::read(&object_path).context(format!(
-            "Unable to read object file {}",
-            object_path.display()
-        ))?;
+    fn read_object(&self, object_path: PathBuf) -> Result<Bytes, DatabaseError> {
+        let object_content =
+            std::fs::read(&object_path).map_err(|e| DatabaseError::ReadObject {
+                path: object_path.display().to_string(),
+                source: e,
+            })?;
 
-        // decompress the object content
         let object_content = Self::decompress(object_content.into())?;
 
-        // return the object content
         Ok(object_content)
     }
 
-    fn write_object(&self, object_path: PathBuf, object_content: Bytes) -> anyhow::Result<()> {
+    fn write_object(
+        &self,
+        object_path: PathBuf,
+        object_content: Bytes,
+    ) -> Result<(), DatabaseError> {
         let object_dir = object_path
             .parent()
-            .context(format!("Invalid object path {}", object_path.display()))?;
+            .ok_or_else(|| DatabaseError::InvalidObjectPath(object_path.display().to_string()))?;
         let temp_object_path = object_dir.join(Self::generate_temp_name());
 
-        // compress the object content
         let object_content = Self::compress(object_content)?;
 
-        // open the file as RDWR, CREAT and EXCL
-        // if ENOENT, create the parent directory and open the file with the same flags
         let mut file = std::fs::OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(true)
             .open(&temp_object_path)
-            .context(format!(
-                "Unable to open object file {}",
-                temp_object_path.display()
-            ))?;
+            .map_err(|e| DatabaseError::OpenObject {
+                path: temp_object_path.display().to_string(),
+                source: e,
+            })?;
 
-        file.write_all(&object_content).context(format!(
-            "Unable to write object file {}",
-            temp_object_path.display()
-        ))?;
+        file.write_all(&object_content)
+            .map_err(|e| DatabaseError::WriteObject {
+                path: temp_object_path.display().to_string(),
+                source: e,
+            })?;
 
-        // rename the temp file to the object file to make it atomic
-        std::fs::rename(&temp_object_path, &object_path).context(format!(
-            "Unable to rename object file to {}",
-            object_path.display()
-        ))?;
+        std::fs::rename(&temp_object_path, &object_path).map_err(|e| {
+            DatabaseError::RenameObject {
+                path: object_path.display().to_string(),
+                source: e,
+            }
+        })?;
 
         Ok(())
     }
 
-    fn compress(data: Bytes) -> anyhow::Result<Bytes> {
+    fn compress(data: Bytes) -> Result<Bytes, DatabaseError> {
         let mut encoder =
             flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
-        encoder
-            .write_all(&data)
-            .context("Unable to compress object content")?;
+        encoder.write_all(&data).map_err(DatabaseError::Compress)?;
 
         encoder
             .finish()
-            .map(|compressed_content| compressed_content.into())
-            .context("Unable to finish compressing object content")
+            .map(Into::into)
+            .map_err(DatabaseError::Compress)
     }
 
-    fn decompress(data: Bytes) -> anyhow::Result<Bytes> {
+    fn decompress(data: Bytes) -> Result<Bytes, DatabaseError> {
         let mut decoder = flate2::read::ZlibDecoder::new(&*data);
         let mut decompressed_content = Vec::new();
         decoder
             .read_to_end(&mut decompressed_content)
-            .context("Unable to decompress object content")?;
+            .map_err(DatabaseError::Decompress)?;
 
         Ok(decompressed_content.into())
     }
@@ -329,12 +368,9 @@ impl Database {
     ///
     /// - For prefixes of 2+ characters, only searches the specific directory
     /// - For prefixes of 0-1 characters, must search all directories (slower)
-    pub fn find_objects_by_prefix(&self, prefix: &str) -> anyhow::Result<Vec<ObjectId>> {
+    pub fn find_objects_by_prefix(&self, prefix: &str) -> Result<Vec<ObjectId>, DatabaseError> {
         let mut matches = Vec::new();
 
-        // Determine which directory to search
-        // If prefix is less than 2 chars, we'd need to search all dirs (0-ff)
-        // If prefix is 2+ chars, we only search the specific directory
         if prefix.len() >= 2 {
             let dir_name = &prefix[..2];
             let file_prefix = &prefix[2..];
@@ -355,7 +391,6 @@ impl Database {
                 }
             }
         } else {
-            // Search all directories
             for i in 0..=255 {
                 let dir_name = format!("{:02x}", i);
                 let dir_path = self.path.join(&dir_name);
@@ -368,7 +403,7 @@ impl Database {
                         let full_oid = format!("{}{}", dir_name, file_name_str);
 
                         if full_oid.starts_with(prefix) {
-                            let oid = ObjectId::try_parse(full_oid)?;
+                            let oid = ObjectId::try_parse(full_oid).map_err(ObjectError::from)?;
                             matches.push(oid);
                         }
                     }
@@ -392,7 +427,7 @@ impl Database {
     /// # Returns
     ///
     /// A string representing the object type: "blob", "tree", or "commit"
-    pub fn get_object_type(&self, object_id: &ObjectId) -> anyhow::Result<ObjectType> {
+    pub fn get_object_type(&self, object_id: &ObjectId) -> Result<ObjectType, DatabaseError> {
         let (object_type, _) = self.parse_object_as_bytes(object_id)?;
         Ok(object_type)
     }
@@ -448,14 +483,18 @@ impl CommitCache {
     /// # Returns
     ///
     /// Ok(()) if successful, or an error if the object doesn't exist or isn't a commit
-    pub fn load_commit(&self, database: &Database, object_id: &ObjectId) -> anyhow::Result<()> {
+    pub fn load_commit(
+        &self,
+        database: &Database,
+        object_id: &ObjectId,
+    ) -> Result<(), DatabaseError> {
         if self.commits.borrow().contains_key(object_id) {
-            return Ok(()); // Already cached
+            return Ok(());
         }
 
         let commit = database
             .parse_object_as_commit(object_id)?
-            .ok_or_else(|| anyhow::anyhow!("Object {} is not a commit", object_id))?;
+            .ok_or_else(|| DatabaseError::NotACommit(object_id.to_string()))?;
 
         let cached = CachedCommit {
             oid: commit.object_id()?,
@@ -479,11 +518,11 @@ impl CommitCache {
     ///
     /// A SlimCommit with owned data from the cache, or an error if the commit
     /// is not in the cache
-    pub fn get_slim_commit(&self, object_id: &ObjectId) -> anyhow::Result<SlimCommit> {
+    pub fn get_slim_commit(&self, object_id: &ObjectId) -> Result<SlimCommit, DatabaseError> {
         let commits = self.commits.borrow();
         let cached = commits
             .get(object_id)
-            .ok_or_else(|| anyhow::anyhow!("Commit {} not found in cache", object_id))?;
+            .ok_or_else(|| DatabaseError::NotInCache(object_id.to_string()))?;
 
         Ok(SlimCommit {
             oid: cached.oid.clone(),
@@ -508,7 +547,7 @@ impl CommitCache {
         &self,
         database: &Database,
         object_id: &ObjectId,
-    ) -> anyhow::Result<SlimCommit> {
+    ) -> Result<SlimCommit, DatabaseError> {
         self.load_commit(database, object_id)?;
         self.get_slim_commit(object_id)
     }

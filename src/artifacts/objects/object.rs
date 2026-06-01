@@ -14,15 +14,33 @@
 //! Then compressed with zlib and stored in `.git/objects/`.
 
 use crate::artifacts::objects::blob::Blob;
-use crate::artifacts::objects::commit::Commit;
-use crate::artifacts::objects::object_id::ObjectId;
-use crate::artifacts::objects::object_type::ObjectType;
+use crate::artifacts::objects::commit::{AuthorParseError, Commit};
+use crate::artifacts::objects::object_id::{ObjectId, ObjectIdError};
+use crate::artifacts::objects::object_type::{ObjectType, ObjectTypeError};
 use crate::artifacts::objects::tree::Tree;
 use anyhow::Result;
 use bytes::Bytes;
 use sha1::{Digest, Sha1};
 use std::io::BufRead;
 use std::path::PathBuf;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ObjectError {
+    #[error(transparent)]
+    Id(#[from] ObjectIdError),
+    #[error(transparent)]
+    Type(#[from] ObjectTypeError),
+    #[error(transparent)]
+    AuthorParse(#[from] AuthorParseError),
+    #[error(transparent)]
+    Io(#[from] std::io::Error),
+    #[error(transparent)]
+    Utf8(#[from] std::string::FromUtf8Error),
+    #[error(transparent)]
+    StdUtf8(#[from] std::str::Utf8Error),
+    #[error("{0}")]
+    InvalidFormat(String),
+}
 
 /// Trait for serializing objects to Git's binary format
 // TODO: Consider mutably borrowing BufReader and BufWriter for efficiency
